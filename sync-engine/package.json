@@ -3,5 +3,10 @@
   "version": "0.1.0",
   "private": true,
   "main": "src/index.js",
-  "dependencies": {}
+  "dependencies": {
+    "@automerge/automerge": "^3.2.6"
+  },
+  "devDependencies": {
+    "dotenv": "^17.4.2"
+  }
 }
