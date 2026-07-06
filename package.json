@@ -1,0 +1,14 @@
+{
+  "name": "idg4h",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "edge-node",
+    "central-server",
+    "sync-engine",
+    "shared"
+  ],
+  "scripts": {
+    "postinstall": "echo 'IDG4H workspaces linked'"
+  }
+}
