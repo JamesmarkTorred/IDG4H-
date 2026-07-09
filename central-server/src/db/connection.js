@@ -14,8 +14,4 @@ async function initSchema() {
   `);
 }
 
-initSchema().catch((err) => {
-  console.error('[central-server] schema init failed on load:', err.message);
-});
-
 module.exports = { pool, initSchema };
