@@ -7,6 +7,10 @@
     "@automerge/automerge": "^3.2.6"
   },
   "devDependencies": {
-    "dotenv": "^17.4.2"
+    "dotenv": "^17.4.2",
+    "jest": "^30.4.2"
+  },
+  "scripts": {
+    "test": "jest"
   }
 }

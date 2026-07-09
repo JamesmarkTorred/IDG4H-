@@ -22,4 +22,6 @@ function initSchema() {
   `);
 }
 
+initSchema();
+
 module.exports = { db, initSchema };
