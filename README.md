@@ -1,13 +1,212 @@
 # IDG4H — Integrated Data Gateway for Health
 
-## Status
-Phase: Environment Setup
+> Offline-first data gateway that syncs edge-collected health records (SQLite) with a central FHIR-compliant registry (PostgreSQL) via CRDT-based sync — built for low-connectivity clinic environments.
 
-## Components
-- `edge-node/` — Node.js + SQLite, offline-first client
-- `central-server/` — Node.js + PostgreSQL
-- `sync-engine/` — CRDT + queue-based sync
-- `shared/` — common FHIR schemas/types
+[![Test Suite](https://github.com/zabdeilmercado/idg4h/actions/workflows/test.yml/badge.svg)](https://github.com/zabdeilmercado/idg4h/actions/workflows/test.yml)
 
-## Notes
-Technical Audit was deferred — see docs/ADR/0000-audit-skipped.md
+## About
+
+IDG4H is a capstone project aimed at integrating legacy Philippine barangay/clinic-level health information systems (iClinicSys, CHITS, eBHS) into a unified, FHIR-compliant central registry. The system is designed around an **offline-first, edge + central architecture**, recognizing that health workers frequently operate in low- or no-connectivity environments.
+
+Rather than relying on direct APIs into these legacy systems (which mostly don't exist), IDG4H ingests **CSV/Excel exports** from source systems and reconciles data through a CRDT-based synchronization layer, allowing edge devices to record and update health data offline and merge changes with the central registry once connectivity is available.
+
+## Core Features
+
+- **Offline-first Edge Node** — a local Node.js + SQLite service that Barangay Health Workers (BHWs) can use to record and access health data without requiring live internet connectivity.
+- **Central Server Registry** — a Node.js + PostgreSQL service acting as the authoritative, FHIR-aligned data store, aggregating records synced in from edge nodes.
+- **CRDT-based Sync Engine** — built on [Automerge](https://automerge.org/), enabling edge nodes and the central server to independently edit records offline and merge changes automatically without conflicts, using queue-based synchronization.
+- **RESTful APIs with OpenAPI/Swagger docs** — both Edge Node and Central Server expose documented, interactive API references (`/api-docs`) generated via `swagger-jsdoc` and `swagger-ui-express`.
+- **FHIR-aligned data modeling** *(in progress)* — designed to map legacy system exports into standard HL7 FHIR resource shapes, pending Technical Audit findings on actual source data structures.
+- **QR-based Patient Lookup** *(planned)* — an opaque, non-PII QR identifier system intended to speed up patient lookup in the field, with manual demographic search as a mandatory fallback for lost/damaged codes.
+- **Automated Testing & CI** — each workspace has Jest-based test coverage, automatically run on every push/PR via GitHub Actions, including a disposable PostgreSQL service container for central-server tests.
+
+## Repository Structure
+
+This project is organized as an **npm workspaces monorepo**:
+
+```
+idg4h/
+├── edge-node/                  # Node.js + SQLite — offline-first client for field use
+│   ├── src/
+│   │   ├── db/
+│   │   │   └── connection.js   # SQLite connection + schema init
+│   │   ├── docs/
+│   │   │   └── swagger.js      # OpenAPI spec generation
+│   │   ├── routes/
+│   │   │   └── health.js       # Health-check endpoint
+│   │   ├── __tests__/          # Jest test suite
+│   │   ├── app.js              # Express app configuration
+│   │   ├── config.js           # Environment/config loader
+│   │   └── index.js            # Entry point / server listener
+│   ├── .env                    # Local environment variables (gitignored)
+│   └── package.json
+│
+├── central-server/             # Node.js + PostgreSQL — central FHIR-aligned registry
+│   ├── src/
+│   │   ├── db/
+│   │   │   └── connection.js   # PostgreSQL pool + schema init (with startup retry logic)
+│   │   ├── docs/
+│   │   │   └── swagger.js
+│   │   ├── routes/
+│   │   │   └── health.js
+│   │   ├── __tests__/
+│   │   ├── app.js
+│   │   ├── config.js
+│   │   └── index.js
+│   ├── .env
+│   └── package.json
+│
+├── sync-engine/                # CRDT-based, queue-based synchronization layer
+│   ├── src/
+│   │   ├── documents/          # Automerge document wrappers per resource type
+│   │   ├── queue/               # Offline write-queue logic (pending)
+│   │   ├── sync/
+│   │   │   └── mergeDemo.js    # Working Automerge merge proof-of-concept
+│   │   ├── __tests__/
+│   │   └── index.js
+│   └── package.json
+│
+├── shared/                     # Common types, schemas, and validation utilities
+│   ├── src/
+│   └── package.json
+│
+├── docs/
+│   └── ADR/                    # Architecture Decision Records
+│       └── 0000-audit-skipped.md
+│
+├── .github/
+│   ├── workflows/
+│   │   └── test.yml            # CI pipeline — runs all workspace test suites
+│   └── PULL_REQUEST_TEMPLATE.md
+│
+├── .gitignore
+├── package.json                # Root workspaces manifest
+└── README.md
+```
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| Edge Node runtime | Node.js + Express |
+| Edge Node storage | SQLite (`better-sqlite3`) |
+| Central Server runtime | Node.js + Express |
+| Central Server storage | PostgreSQL (`pg`) |
+| Sync mechanism | Automerge (CRDT), queue-based |
+| API documentation | OpenAPI / Swagger (`swagger-jsdoc`, `swagger-ui-express`) |
+| Testing | Jest, Supertest |
+| CI/CD | GitHub Actions |
+| Data interoperability standard | HL7 FHIR |
+| Containerization | Docker (available for local Postgres and future deployment) |
+
+## Setup Prerequisites
+
+Before setting up the project locally, ensure you have:
+
+- **Node.js** v20 or later ([nodejs.org](https://nodejs.org/))
+- **npm** (bundled with Node.js) — this project uses **npm workspaces**
+- **PostgreSQL** (v15 or later) running locally, or via Docker
+- **Git**
+- *(Optional but recommended)* **Docker Desktop** — for disposable/reproducible Postgres instances and future containerized deployment
+- *(Optional)* **psql** or **pgAdmin4** — for direct database inspection/management
+
+## Getting Started
+
+### 1. Clone the repository
+
+```bash
+git clone https://github.com/zabdeilmercado/idg4h.git
+cd idg4h
+```
+
+### 2. Install dependencies (all workspaces)
+
+```bash
+npm install
+```
+
+### 3. Configure environment variables
+
+Each workspace that needs one has its own `.env` file (not committed to source control). Create them as follows:
+
+**`edge-node/.env`**
+```env
+NODE_ENV=development
+PORT=4000
+DB_PATH=./data/edge-node.sqlite
+```
+
+**`central-server/.env`**
+```env
+NODE_ENV=development
+PORT=5000
+DATABASE_URL=postgres://<user>:<password>@localhost:5432/idg4h_central
+```
+
+### 4. Set up the central database
+
+Ensure PostgreSQL is running, then create the database:
+
+```bash
+psql -U postgres -h localhost -c "CREATE DATABASE idg4h_central;"
+```
+
+### 5. Run each service
+
+**Edge Node:**
+```bash
+node edge-node/src/index.js
+# → listening on http://localhost:4000
+# → API docs at http://localhost:4000/api-docs
+```
+
+**Central Server:**
+```bash
+node central-server/src/index.js
+# → listening on http://localhost:5000
+# → API docs at http://localhost:5000/api-docs
+```
+
+### 6. Run tests
+
+Each workspace can be tested individually:
+
+```bash
+npm test -w edge-node
+npm test -w central-server
+npm test -w sync-engine
+```
+
+Tests also run automatically on every push and pull request via GitHub Actions (see `.github/workflows/test.yml`).
+
+## Project Status
+
+This project follows a structured development lifecycle: **Technical Audit → Architecture Design → Environment Setup → Development → Testing & Evaluation**.
+
+**Current phase:** Development (foundational scaffolding), with the **Technical Audit** now formally underway to inform the real FHIR-aligned data model.
+
+| Component | Status |
+|---|---|
+| Monorepo & CI infrastructure | ✅ Complete |
+| Edge Node (bootstrap, storage, health-check, docs) | ✅ Complete |
+| Central Server (bootstrap, storage, health-check, docs) | ✅ Complete |
+| Sync Engine (CRDT mechanism proven) | ✅ Scaffold complete |
+| Automated testing (all workspaces) | ✅ Complete |
+| Real FHIR data model | ⏸ Pending Technical Audit |
+| Data ingestion (CSV/Excel parsing) | ⏸ Pending Technical Audit |
+| Authentication & authorization | ⏸ Design pending |
+| QR-based patient lookup | ⏸ Design documented, pending implementation |
+
+See `docs/ADR/` for architecture decisions and their rationale, including known limitations and deferred work.
+
+## Data Privacy Note
+
+This project handles health-related data. All development and testing to date uses placeholder/non-clinical data only. Any work involving real patient data during the Technical Audit phase will follow applicable data privacy protocols (Philippine Data Privacy Act, RA 10173), including de-identification where possible and no offsite retention of identifiable records without proper clearance.
+
+## License
+
+*(To be determined — add your capstone/institutional licensing terms here.)*
+
+## Acknowledgments
+
+Developed as part of a capstone project integrating legacy Philippine barangay/clinic health information systems into a modern, interoperable, offline-first health data gateway.
