@@ -205,7 +205,7 @@ This project handles health-related data. All development and testing to date us
 
 ## License
 
-*(To be determined*
+*(To be determined)*
 
 ## Acknowledgments
 
