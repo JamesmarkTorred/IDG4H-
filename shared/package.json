@@ -6,6 +6,7 @@
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
+    "test": "tsc --noEmit",
     "dev": "tsx watch src/index.ts"
   },
   "devDependencies": {

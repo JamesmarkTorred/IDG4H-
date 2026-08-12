@@ -51,3 +51,13 @@ jobs:
       - run: npm test -w central-server
         env:
           DATABASE_URL: postgres://postgres:testpass@localhost:5432/idg4h_central_test
+
+    test-shared:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 20
+      - run: npm install
+      - run: npm test -w shared
