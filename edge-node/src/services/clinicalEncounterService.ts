@@ -12,6 +12,10 @@ import {
   createImmunization,
 } from '../db/immunizationRepository';
 
+import {
+  enqueueOutboxOperation,
+} from '../db/outboxRepository';
+
 import type {
   Encounter,
   EncounterInput,
@@ -60,25 +64,52 @@ const saveClinicalEncounterTransaction =
         patientId: input.patientId,
       });
 
+      enqueueOutboxOperation({
+        entityType: 'encounter',
+        entityId: encounter.id,
+        operationType: 'create',
+        payload: encounter,
+      });
+
       const observations = (
         input.observations ?? []
-      ).map((observation) =>
-        createObservation({
-          ...observation,
-          patientId: input.patientId,
-          encounterId: encounter.id,
-        })
-      );
+      ).map((observationInput) => {
+        const observation =
+          createObservation({
+            ...observationInput,
+            patientId: input.patientId,
+            encounterId: encounter.id,
+          });
+
+        enqueueOutboxOperation({
+          entityType: 'observation',
+          entityId: observation.id,
+          operationType: 'create',
+          payload: observation,
+        });
+
+        return observation;
+      });
 
       const immunizations = (
         input.immunizations ?? []
-      ).map((immunization) =>
-        createImmunization({
-          ...immunization,
-          patientId: input.patientId,
-          encounterId: encounter.id,
-        })
-      );
+      ).map((immunizationInput) => {
+        const immunization =
+          createImmunization({
+            ...immunizationInput,
+            patientId: input.patientId,
+            encounterId: encounter.id,
+          });
+
+        enqueueOutboxOperation({
+          entityType: 'immunization',
+          entityId: immunization.id,
+          operationType: 'create',
+          payload: immunization,
+        });
+
+        return immunization;
+      });
 
       return {
         encounter,

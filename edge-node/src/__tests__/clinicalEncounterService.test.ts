@@ -13,6 +13,7 @@ let input: ClinicalEncounterInput;
 
 function snapshotVisitRecords() {
   return {
+    outbox: db.prepare('SELECT * FROM outbox ORDER BY id').all(),
     encounters: db.prepare('SELECT * FROM encounters ORDER BY id').all(),
     observations: db.prepare('SELECT * FROM observations ORDER BY id').all(),
     immunizations: db.prepare('SELECT * FROM immunizations ORDER BY id').all(),
@@ -21,6 +22,7 @@ function snapshotVisitRecords() {
 
 beforeEach(() => {
   db.exec(`
+    DELETE FROM outbox;
     DELETE FROM immunizations;
     DELETE FROM observations;
     DELETE FROM encounters;

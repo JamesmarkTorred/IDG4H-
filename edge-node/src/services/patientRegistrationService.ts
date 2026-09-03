@@ -1,5 +1,5 @@
 import type { Patient, PatientInput } from '../domain';
-import { createPatient } from '../db/patientRepository';
+import { createPatientWithOutbox } from './patientWriteService';
 import {
   findPatientCandidates,
   type PatientCandidate,
@@ -25,7 +25,7 @@ export function registerPatient(
 
   return {
     created: true,
-    patient: createPatient(input),
+    patient: createPatientWithOutbox(input),
     candidates: [],
   };
 }

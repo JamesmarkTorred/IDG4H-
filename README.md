@@ -149,6 +149,13 @@ The four repositories stamp new records with this configured identity. Creation
 inputs omit `nodeId`; saved records include it, and caller-supplied overrides are
 ignored.
 
+Application writes use `registerPatient` (candidate detection),
+`createPatientWithOutbox` (direct patient creation), or `saveClinicalEncounter`
+(a complete visit). These services save each domain record and its pending outbox
+operation in the same SQLite transaction; a failure rolls back both. Repository
+creation functions are low-level persistence primitives used by these services
+and repository tests, and do not enqueue synchronization operations themselves.
+
 **`central-server/.env`**
 ```env
 NODE_ENV=development

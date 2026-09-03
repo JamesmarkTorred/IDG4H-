@@ -1,4 +1,5 @@
-import { createPatient } from '../db/patientRepository';
+import { createPatientWithOutbox } from './patientWriteService';
+import { findPendingOutbox } from '../db/outboxRepository';
 
 import {
   findEncountersByPatientId,
@@ -21,7 +22,7 @@ import { db } from '../db/connection';
 const suffix = Date.now().toString();
 const now = new Date().toISOString();
 
-const patient = createPatient({
+const patient = createPatientWithOutbox({
 
   familySerialNo: `TEST-FAMILY-${suffix}`,
 
@@ -136,6 +137,8 @@ const observationsBefore =
 const immunizationsBefore =
   findImmunizationsByPatientId(patient.id).length;
 
+const outboxBefore = findPendingOutbox(Number.MAX_SAFE_INTEGER);
+
 let transactionFailed = false;
 
 try {
@@ -195,6 +198,12 @@ const observationsAfter =
 
 const immunizationsAfter =
   findImmunizationsByPatientId(patient.id).length;
+
+const outboxAfter = findPendingOutbox(Number.MAX_SAFE_INTEGER);
+
+if (JSON.stringify(outboxAfter) !== JSON.stringify(outboxBefore)) {
+  throw new Error('Rollback failed: outbox operations changed.');
+}
 
 if (encountersAfter !== encountersBefore) {
   throw new Error(
