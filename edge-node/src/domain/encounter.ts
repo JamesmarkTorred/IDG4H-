@@ -1,6 +1,5 @@
 export interface EncounterInput {
   patientId: string;
-  nodeId: string;
 
   sourceSystem?: string;
   sourceRecordId?: string;
@@ -19,6 +18,7 @@ export interface EncounterInput {
 
 export interface Encounter extends EncounterInput {
   id: string;
+  nodeId: string;
   version: number;
   createdAt: string;
   updatedAt: string;

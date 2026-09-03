@@ -1,11 +1,9 @@
-import config from '../config';
 import { registerPatient } from './patientRegistrationService';
 import { db } from '../db/connection';
 
 const suffix = Date.now().toString();
 
 const basePatient = {
-  nodeId: config.nodeId,
   sourceSystem: 'offline-form',
   sourceRecordId: `SRC-${suffix}`,
   phicNo: `PHIC-${suffix}`,

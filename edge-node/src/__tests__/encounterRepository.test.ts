@@ -1,4 +1,5 @@
 import type { EncounterInput, PatientInput } from '../domain';
+import config from '../config';
 import { db } from '../db/connection';
 import { createPatient } from '../db/patientRepository';
 import {
@@ -9,7 +10,6 @@ import {
 } from '../db/encounterRepository';
 
 const patientInput: PatientInput = {
-  nodeId: 'test-edge-001',
   lastName: 'Dela Cruz',
   firstName: 'Maria',
   birthDate: '1995-06-15',
@@ -23,7 +23,6 @@ beforeEach(() => {
   const patient = createPatient(patientInput);
   input = {
     patientId: patient.id,
-    nodeId: patientInput.nodeId,
     encounterDate: '2026-09-03T08:00:00.000Z',
   };
 });
@@ -48,7 +47,9 @@ describe('encounter repository', () => {
 
     const encounter = createEncounter(fullInput);
 
-    expect(encounter).toEqual({
+    const { nodeId, ...persistedFields } = encounter;
+    expect(nodeId).toBe(config.nodeId);
+    expect(persistedFields).toEqual({
       ...fullInput,
       id: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i),
       version: 1,

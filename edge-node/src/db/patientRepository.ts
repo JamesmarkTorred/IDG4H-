@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import config from '../config';
 import { db } from './connection';
 import type { Patient, PatientInput } from '../domain';
 
@@ -195,7 +196,7 @@ export function createPatient(input: PatientInput): Patient {
 
     sourceSystem: nullable(input.sourceSystem),
     sourceRecordId: nullable(input.sourceRecordId),
-    nodeId: input.nodeId,
+    nodeId: config.nodeId,
 
     familySerialNo: nullable(input.familySerialNo),
     phicNo: nullable(input.phicNo),

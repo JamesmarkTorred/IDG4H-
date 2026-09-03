@@ -1,4 +1,5 @@
 import type { ObservationInput, PatientInput } from '../domain';
+import config from '../config';
 import { db } from '../db/connection';
 import { createPatient } from '../db/patientRepository';
 import { createEncounter } from '../db/encounterRepository';
@@ -12,7 +13,6 @@ import {
 } from '../db/observationRepository';
 
 const patientInput: PatientInput = {
-  nodeId: 'test-edge-001',
   lastName: 'Santos',
   firstName: 'Ana',
   birthDate: '1987-04-20',
@@ -26,7 +26,6 @@ beforeEach(() => {
   const patient = createPatient(patientInput);
   input = {
     patientId: patient.id,
-    nodeId: patientInput.nodeId,
     code: 'systolic-blood-pressure',
     valueNumeric: 120,
     observedAt: '2026-09-03T08:00:00.000Z',
@@ -40,7 +39,6 @@ describe('observation repository', () => {
   it('persists numeric observations with encounter, provenance, and version metadata', () => {
     const encounter = createEncounter({
       patientId: input.patientId,
-      nodeId: input.nodeId,
       encounterDate: input.observedAt,
     });
     const fullInput: ObservationInput = {
@@ -52,7 +50,9 @@ describe('observation repository', () => {
     };
     const observation = createObservation(fullInput);
 
-    expect(observation).toEqual({
+    const { nodeId, ...persistedFields } = observation;
+    expect(nodeId).toBe(config.nodeId);
+    expect(persistedFields).toEqual({
       ...fullInput,
       valueText: undefined,
       id: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i),
@@ -125,7 +125,6 @@ describe('observation repository', () => {
     const otherPatient = createPatient({ ...patientInput, firstName: 'Other' });
     const otherEncounter = createEncounter({
       patientId: otherPatient.id,
-      nodeId: input.nodeId,
       encounterDate: input.observedAt,
     });
 
@@ -140,7 +139,6 @@ describe('observation repository', () => {
   it('filters histories by patient, encounter, and code with the requested date ordering', () => {
     const encounter = createEncounter({
       patientId: input.patientId,
-      nodeId: input.nodeId,
       encounterDate: input.observedAt,
     });
     const otherPatient = createPatient({ ...patientInput, firstName: 'Other' });

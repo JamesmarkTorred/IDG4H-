@@ -1,4 +1,3 @@
-import config from '../config';
 import { createPatient } from './patientRepository';
 import { createEncounter } from './encounterRepository';
 
@@ -15,7 +14,6 @@ const suffix = Date.now().toString();
 const now = new Date().toISOString();
 
 const patient = createPatient({
-  nodeId: config.nodeId,
 
   familySerialNo: `TEST-FAMILY-${suffix}`,
 
@@ -31,7 +29,6 @@ const patient = createPatient({
 
 const encounter = createEncounter({
   patientId: patient.id,
-  nodeId: config.nodeId,
 
   sourceSystem: 'offline-form',
   sourceRecordId: `ENC-OBS-${suffix}`,
@@ -43,7 +40,6 @@ const encounter = createEncounter({
 const systolic = createObservation({
   patientId: patient.id,
   encounterId: encounter.id,
-  nodeId: config.nodeId,
 
   sourceSystem: 'offline-form',
   sourceRecordId: `OBS-SYS-${suffix}`,
@@ -58,7 +54,6 @@ const systolic = createObservation({
 const diastolic = createObservation({
   patientId: patient.id,
   encounterId: encounter.id,
-  nodeId: config.nodeId,
 
   sourceSystem: 'offline-form',
   sourceRecordId: `OBS-DIA-${suffix}`,

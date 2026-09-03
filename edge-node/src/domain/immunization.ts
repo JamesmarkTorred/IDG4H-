@@ -1,7 +1,6 @@
 export interface ImmunizationInput {
   patientId: string;
   encounterId?: string;
-  nodeId: string;
 
   sourceSystem?: string;
   sourceRecordId?: string;
@@ -17,6 +16,7 @@ export interface ImmunizationInput {
 
 export interface Immunization extends ImmunizationInput {
   id: string;
+  nodeId: string;
   version: number;
   createdAt: string;
   updatedAt: string;

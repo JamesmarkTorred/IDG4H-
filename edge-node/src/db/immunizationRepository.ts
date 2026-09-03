@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import config from '../config';
 import { db } from './connection';
 import type {
   Immunization,
@@ -158,7 +159,7 @@ export function createImmunization(
 
     sourceSystem: nullable(input.sourceSystem),
     sourceRecordId: nullable(input.sourceRecordId),
-    nodeId: input.nodeId,
+    nodeId: config.nodeId,
 
     vaccineCode: input.vaccineCode.trim(),
     vaccineName: nullable(input.vaccineName),

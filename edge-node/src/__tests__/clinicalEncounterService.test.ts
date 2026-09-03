@@ -27,7 +27,6 @@ beforeEach(() => {
     DELETE FROM patients;
   `);
   const patient = createPatient({
-    nodeId: config.nodeId,
     lastName: 'Garcia',
     firstName: 'Elena',
     birthDate: '1992-08-12',
@@ -36,19 +35,16 @@ beforeEach(() => {
   input = {
     patientId: patient.id,
     encounter: {
-      nodeId: config.nodeId,
       encounterDate: '2026-09-03T08:00:00.000Z',
       encounterType: 'consultation',
     },
     observations: [
       {
-        nodeId: config.nodeId,
         code: 'test-numeric',
         valueNumeric: 118,
         observedAt: '2026-09-03T08:00:00.000Z',
       },
       {
-        nodeId: config.nodeId,
         code: 'test-text',
         valueText: 'Test finding',
         observedAt: '2026-09-03T08:01:00.000Z',
@@ -56,7 +52,6 @@ beforeEach(() => {
     ],
     immunizations: [
       {
-        nodeId: config.nodeId,
         vaccineCode: 'TEST-VACCINE',
         administeredDate: '2026-09-03T08:02:00.000Z',
       },
@@ -71,14 +66,18 @@ describe('clinical encounter transaction', () => {
     const patientBefore = findPatientById(input.patientId);
     const result = saveClinicalEncounter(input);
 
-    expect(result.encounter).toMatchObject({ ...input.encounter, patientId: input.patientId });
+    expect(result.encounter.nodeId).toBe(config.nodeId);
+    expect(result.encounter).toMatchObject({
+      ...input.encounter,
+      patientId: input.patientId,
+    });
     expect(result.observations).toHaveLength(2);
     expect(result.immunizations).toHaveLength(1);
     for (const child of [...result.observations, ...result.immunizations]) {
+      expect(child.nodeId).toBe(config.nodeId);
       expect(child).toMatchObject({
         patientId: input.patientId,
         encounterId: result.encounter.id,
-        nodeId: config.nodeId,
         version: 1,
       });
     }
@@ -118,7 +117,6 @@ describe('clinical encounter transaction', () => {
       observations: [
         ...input.observations!,
         {
-          nodeId: config.nodeId,
           code: 'invalid-value',
           valueNumeric: 123,
           valueText: 'invalid',
@@ -140,7 +138,7 @@ describe('clinical encounter transaction', () => {
       ...input,
       immunizations: [
         ...input.immunizations!,
-        { nodeId: config.nodeId, vaccineCode: '   ' },
+        { vaccineCode: '   ' },
       ],
     };
 

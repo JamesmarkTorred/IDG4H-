@@ -1,4 +1,3 @@
-import config from '../config';
 import { createPatient } from '../db/patientRepository';
 
 import {
@@ -23,7 +22,6 @@ const suffix = Date.now().toString();
 const now = new Date().toISOString();
 
 const patient = createPatient({
-  nodeId: config.nodeId,
 
   familySerialNo: `TEST-FAMILY-${suffix}`,
 
@@ -49,7 +47,6 @@ const result = saveClinicalEncounter({
   patientId: patient.id,
 
   encounter: {
-    nodeId: config.nodeId,
 
     sourceSystem: 'offline-form',
     sourceRecordId: `VISIT-${suffix}`,
@@ -63,7 +60,6 @@ const result = saveClinicalEncounter({
 
   observations: [
     {
-      nodeId: config.nodeId,
 
       code: 'systolic-blood-pressure',
       valueNumeric: 118,
@@ -72,7 +68,6 @@ const result = saveClinicalEncounter({
       observedAt: now,
     },
     {
-      nodeId: config.nodeId,
 
       code: 'diastolic-blood-pressure',
       valueNumeric: 76,
@@ -81,7 +76,6 @@ const result = saveClinicalEncounter({
       observedAt: now,
     },
     {
-      nodeId: config.nodeId,
 
       code: 'body-temperature',
       valueNumeric: 36.7,
@@ -93,7 +87,6 @@ const result = saveClinicalEncounter({
 
   immunizations: [
     {
-      nodeId: config.nodeId,
 
       vaccineCode: 'TEST-VACCINE',
       vaccineName: 'Synthetic Test Vaccine',
@@ -150,7 +143,6 @@ try {
     patientId: patient.id,
 
     encounter: {
-      nodeId: config.nodeId,
 
       sourceSystem: 'offline-form',
       sourceRecordId:
@@ -162,7 +154,6 @@ try {
 
     observations: [
       {
-        nodeId: config.nodeId,
 
         code: 'invalid-test-observation',
 

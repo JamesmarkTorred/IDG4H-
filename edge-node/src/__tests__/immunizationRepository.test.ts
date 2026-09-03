@@ -1,4 +1,5 @@
 import type { ImmunizationInput, PatientInput } from '../domain';
+import config from '../config';
 import { db } from '../db/connection';
 import { createPatient } from '../db/patientRepository';
 import { createEncounter } from '../db/encounterRepository';
@@ -12,7 +13,6 @@ import {
 } from '../db/immunizationRepository';
 
 const patientInput: PatientInput = {
-  nodeId: 'test-edge-001',
   lastName: 'Reyes',
   firstName: 'Pedro',
   birthDate: '2025-01-15',
@@ -26,7 +26,6 @@ beforeEach(() => {
   const patient = createPatient(patientInput);
   input = {
     patientId: patient.id,
-    nodeId: patientInput.nodeId,
     vaccineCode: 'BCG',
     administeredDate: '2026-09-03T08:00:00.000Z',
   };
@@ -39,7 +38,6 @@ describe('immunization repository', () => {
   it('persists every field with encounter, provenance, and version metadata', () => {
     const encounter = createEncounter({
       patientId: input.patientId,
-      nodeId: input.nodeId,
       encounterDate: '2026-09-03T08:00:00.000Z',
     });
     const fullInput: ImmunizationInput = {
@@ -54,7 +52,9 @@ describe('immunization repository', () => {
     };
     const immunization = createImmunization(fullInput);
 
-    expect(immunization).toEqual({
+    const { nodeId, ...persistedFields } = immunization;
+    expect(nodeId).toBe(config.nodeId);
+    expect(persistedFields).toEqual({
       ...fullInput,
       id: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i),
       version: 1,
@@ -122,7 +122,6 @@ describe('immunization repository', () => {
     const otherPatient = createPatient({ ...patientInput, firstName: 'Other' });
     const otherEncounter = createEncounter({
       patientId: otherPatient.id,
-      nodeId: input.nodeId,
       encounterDate: '2026-09-03T08:00:00.000Z',
     });
 
@@ -137,7 +136,6 @@ describe('immunization repository', () => {
   it('keeps repeat events and filters histories with the requested date ordering', () => {
     const encounter = createEncounter({
       patientId: input.patientId,
-      nodeId: input.nodeId,
       encounterDate: '2026-09-03T08:00:00.000Z',
     });
     const otherPatient = createPatient({ ...patientInput, firstName: 'Other' });

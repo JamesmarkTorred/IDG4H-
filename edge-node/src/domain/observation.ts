@@ -1,7 +1,6 @@
 export interface ObservationInput {
   patientId: string;
   encounterId?: string;
-  nodeId: string;
 
   sourceSystem?: string;
   sourceRecordId?: string;
@@ -17,6 +16,7 @@ export interface ObservationInput {
 
 export interface Observation extends ObservationInput {
   id: string;
+  nodeId: string;
   version: number;
   createdAt: string;
   updatedAt: string;

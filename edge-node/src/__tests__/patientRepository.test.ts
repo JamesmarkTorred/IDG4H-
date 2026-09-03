@@ -1,4 +1,5 @@
 import type { PatientInput } from '../domain';
+import config from '../config';
 import { db } from '../db/connection';
 import {
   createPatient,
@@ -10,7 +11,6 @@ import {
 } from '../db/patientRepository';
 
 const input: PatientInput = {
-  nodeId: 'test-edge-001',
   lastName: 'Dela Cruz',
   firstName: 'Juan',
   birthDate: '1990-05-10',
@@ -55,7 +55,9 @@ describe('patient repository', () => {
 
     const patient = createPatient(fullInput);
 
-    expect(patient).toEqual({
+    const { nodeId, ...persistedFields } = patient;
+    expect(nodeId).toBe(config.nodeId);
+    expect(persistedFields).toEqual({
       ...fullInput,
       id: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i),
       version: 1,

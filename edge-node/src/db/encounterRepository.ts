@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import config from '../config';
 import { db } from './connection';
 import type { Encounter, EncounterInput } from '../domain';
 
@@ -123,7 +124,7 @@ export function createEncounter(
 
     sourceSystem: nullable(input.sourceSystem),
     sourceRecordId: nullable(input.sourceRecordId),
-    nodeId: input.nodeId,
+    nodeId: config.nodeId,
 
     encounterDate: input.encounterDate,
     encounterType: nullable(input.encounterType),

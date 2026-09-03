@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import config from '../config';
 import { db } from './connection';
 import type {
   Observation,
@@ -186,7 +187,7 @@ export function createObservation(
 
     sourceSystem: nullable(input.sourceSystem),
     sourceRecordId: nullable(input.sourceRecordId),
-    nodeId: input.nodeId,
+    nodeId: config.nodeId,
 
     code: input.code.trim(),
     valueText: nullable(input.valueText),

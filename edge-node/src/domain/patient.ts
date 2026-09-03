@@ -1,8 +1,6 @@
 export type Sex = 'male' | 'female' | 'other' | 'unknown';
 
 export interface PatientInput {
-  nodeId: string;
-
   sourceSystem?: string;
   sourceRecordId?: string;
 
@@ -46,6 +44,7 @@ export interface PatientInput {
 
 export interface Patient extends PatientInput {
   id: string;
+  nodeId: string;
   version: number;
   createdAt: string;
   updatedAt: string;

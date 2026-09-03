@@ -5,7 +5,6 @@ import { findPatientCandidates } from '../services/patientIdentityService';
 import { registerPatient } from '../services/patientRegistrationService';
 
 const input: PatientInput = {
-  nodeId: 'test-edge-001',
   sourceSystem: 'offline-form',
   sourceRecordId: 'test-source-001',
   phicNo: 'test-phic-001',
@@ -52,7 +51,6 @@ describe('patient identity and registration', () => {
 
   it('returns every demographic candidate without merging, updating, or inserting records', () => {
     const demographicInput: PatientInput = {
-      nodeId: input.nodeId,
       lastName: input.lastName,
       firstName: input.firstName,
       birthDate: input.birthDate,
