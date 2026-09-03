@@ -145,6 +145,9 @@ DB_PATH=./data/edge-node.sqlite
 Edge Node loads its own `.env` even when a check script runs from the monorepo
 root. `NODE_ID` identifies the recording node independently of patient address
 fields. If it is unset, the node identity defaults to `edge-local-development`.
+The four repositories stamp new records with this configured identity. Creation
+inputs omit `nodeId`; saved records include it, and caller-supplied overrides are
+ignored.
 
 **`central-server/.env`**
 ```env
