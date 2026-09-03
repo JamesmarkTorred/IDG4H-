@@ -65,6 +65,172 @@ export async function initSchema(retries = 3, delayMs = 1000): Promise<void> {
           ON sync_operations(entity_type, entity_id);
         CREATE INDEX IF NOT EXISTS idx_sync_operations_status ON sync_operations(status);
         CREATE INDEX IF NOT EXISTS idx_sync_operations_received ON sync_operations(received_at);
+
+        CREATE TABLE IF NOT EXISTS patients (
+          id UUID PRIMARY KEY,
+
+          source_system TEXT,
+          source_record_id TEXT,
+
+          originating_node_id TEXT NOT NULL,
+
+          family_serial_no TEXT,
+          phic_no TEXT,
+
+          last_name TEXT NOT NULL,
+          first_name TEXT NOT NULL,
+          middle_name TEXT,
+          suffix TEXT,
+
+          birth_date DATE NOT NULL,
+
+          sex TEXT NOT NULL
+            CHECK (
+              sex IN (
+                'male',
+                'female',
+                'other',
+                'unknown'
+              )
+            ),
+
+          civil_status TEXT,
+          place_of_birth TEXT,
+          religion TEXT,
+          educational_attainment TEXT,
+
+          contact_number TEXT,
+
+          address_line TEXT,
+          purok TEXT,
+          barangay TEXT,
+          municipality_city TEXT,
+          province TEXT,
+          district TEXT,
+
+          phic_membership_category TEXT,
+          phic_membership_type TEXT,
+
+          employment_status TEXT,
+          occupation TEXT,
+
+          spouse_name TEXT,
+          spouse_birth_date DATE,
+          spouse_occupation TEXT,
+
+          member_maiden_name TEXT,
+          father_name TEXT,
+          family_position TEXT,
+
+          version INTEGER NOT NULL,
+
+          created_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS encounters (
+          id UUID PRIMARY KEY,
+
+          patient_id UUID NOT NULL
+            REFERENCES patients(id)
+            ON DELETE RESTRICT,
+
+          source_system TEXT,
+          source_record_id TEXT,
+
+          originating_node_id TEXT NOT NULL,
+
+          encounter_date TIMESTAMPTZ NOT NULL,
+          encounter_type TEXT,
+
+          chief_complaint TEXT,
+          history_present_illness TEXT,
+          assessment_plan TEXT,
+          outcome TEXT,
+
+          facility_id TEXT,
+          practitioner_id TEXT,
+
+          version INTEGER NOT NULL,
+
+          created_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS observations (
+          id UUID PRIMARY KEY,
+
+          patient_id UUID NOT NULL
+            REFERENCES patients(id)
+            ON DELETE RESTRICT,
+
+          encounter_id UUID
+            REFERENCES encounters(id)
+            ON DELETE SET NULL,
+
+          source_system TEXT,
+          source_record_id TEXT,
+
+          originating_node_id TEXT NOT NULL,
+
+          code TEXT NOT NULL,
+
+          value_text TEXT,
+          value_numeric DOUBLE PRECISION,
+          unit TEXT,
+
+          observed_at TIMESTAMPTZ NOT NULL,
+
+          version INTEGER NOT NULL,
+
+          created_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS immunizations (
+          id UUID PRIMARY KEY,
+
+          patient_id UUID NOT NULL
+            REFERENCES patients(id)
+            ON DELETE RESTRICT,
+
+          encounter_id UUID
+            REFERENCES encounters(id)
+            ON DELETE SET NULL,
+
+          source_system TEXT,
+          source_record_id TEXT,
+
+          originating_node_id TEXT NOT NULL,
+
+          vaccine_code TEXT NOT NULL,
+          vaccine_name TEXT,
+          dose_label TEXT,
+          administered_date TIMESTAMPTZ,
+
+          status TEXT NOT NULL,
+          remarks TEXT,
+
+          version INTEGER NOT NULL,
+
+          created_at TIMESTAMPTZ NOT NULL,
+          updated_at TIMESTAMPTZ NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_encounters_patient
+          ON encounters(patient_id);
+
+        CREATE INDEX IF NOT EXISTS idx_observations_patient
+          ON observations(patient_id);
+
+        CREATE INDEX IF NOT EXISTS idx_observations_encounter
+          ON observations(encounter_id);
+
+        CREATE INDEX IF NOT EXISTS idx_immunizations_patient
+          ON immunizations(patient_id);
+
+        CREATE INDEX IF NOT EXISTS idx_immunizations_encounter
+          ON immunizations(encounter_id);
       `);
       return;
     } catch (error) {
@@ -74,4 +240,3 @@ export async function initSchema(retries = 3, delayMs = 1000): Promise<void> {
     }
   }
 }
-
