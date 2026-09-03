@@ -46,19 +46,26 @@ idg4h/
 │   ├── jest.config.cjs         # TypeScript test configuration
 │   └── package.json
 │
-├── central-server/             # Node.js + PostgreSQL — central FHIR-aligned registry
+├── central-server/             # TypeScript + Express + PostgreSQL
 │   ├── src/
 │   │   ├── db/
-│   │   │   └── connection.js   # PostgreSQL pool + schema init (with startup retry logic)
+│   │   │   ├── connection.ts   # PostgreSQL pool + schema init (with startup retry logic)
+│   │   │   └── syncOperationRepository.ts # Durable, idempotent operation receipts
 │   │   ├── docs/
-│   │   │   └── swagger.js
+│   │   │   └── swagger.ts
+│   │   ├── domain/             # Typed synchronization envelope
+│   │   ├── services/           # Runtime envelope validation
 │   │   ├── routes/
-│   │   │   └── health.js
+│   │   │   ├── health.ts
+│   │   │   └── sync.ts
 │   │   ├── __tests__/
-│   │   ├── app.js
-│   │   ├── config.js
-│   │   └── index.js
+│   │   ├── app.ts
+│   │   ├── config.ts
+│   │   └── index.ts
 │   ├── .env
+│   ├── tsconfig.json
+│   ├── jest.config.cjs
+│   ├── scripts/check-edge-sync.cjs # Integration check against compiled workspaces
 │   └── package.json
 │
 ├── sync-engine/                # CRDT-based, queue-based synchronization layer
@@ -95,7 +102,7 @@ idg4h/
 |---|---|
 | Edge Node runtime | Node.js + Express (TypeScript) |
 | Edge Node storage | SQLite (`better-sqlite3`) |
-| Central Server runtime | Node.js + Express |
+| Central Server runtime | Node.js + Express (TypeScript) |
 | Central Server storage | PostgreSQL (`pg`) |
 | Sync mechanism | Automerge (CRDT), queue-based |
 | API documentation | OpenAPI / Swagger (`swagger-jsdoc`, `swagger-ui-express`) |
@@ -139,6 +146,7 @@ Each workspace that needs one has its own `.env` file (not committed to source c
 NODE_ENV=development
 PORT=4000
 NODE_ID=edge-dev-001
+CENTRAL_SERVER_URL=http://localhost:5000
 DB_PATH=./data/edge-node.sqlite
 ```
 
@@ -187,18 +195,41 @@ npm run build --workspace=@idg4h/edge-node
 npm start --workspace=@idg4h/edge-node
 ```
 
-Edge Node uses TypeScript 5.9 for compatibility with `ts-node` and the CommonJS
-compiler configuration. The other workspaces retain their existing tooling.
+Edge Node and Central Server use TypeScript 5.9 for compatibility with `ts-node`
+and the CommonJS compiler configuration. The other workspaces retain their existing tooling.
 Its tests use an isolated in-memory SQLite database. The `/health` response is
 `{ "status": "ok", "db": "connected" }`; the obsolete `lastCheckId` field has
 been removed because the current schema has no health-check log table.
 
 **Central Server:**
 ```bash
-node central-server/src/index.js
+npm run dev --workspace=@idg4h/central-server
 # → listening on http://localhost:5000
 # → API docs at http://localhost:5000/api-docs
 ```
+
+For a compiled Central Server build:
+
+```bash
+npm run build --workspace=@idg4h/central-server
+npm start --workspace=@idg4h/central-server
+```
+
+Central loads `central-server/.env` from both source and compiled entry points.
+It requires `DATABASE_URL` before startup and initializes PostgreSQL with retries
+before listening. Its `/health` endpoint is a liveness check returning
+`{ "status": "ok", "service": "central-server" }`.
+
+`POST /api/sync/operations` accepts `operationId`, `nodeId`, `entityType`,
+`entityId`, `operationType`, and an object `payload`. The `Idempotency-Key` and
+`X-IDG4H-Node-ID` headers must match the envelope. Central commits an immutable
+receipt in PostgreSQL before returning `{ "operationId": "..." }` with HTTP 200.
+Identical retries receive the same acknowledgement; reusing an operation ID with
+different content returns 409. Invalid envelopes return 400, and storage failures
+return 503 so Edge can retry. See `/api-docs` for the full contract.
+
+An acknowledgement means durable inbox acceptance. Clinical/FHIR application
+of these receipts and authentication remain separate milestones.
 
 ### 6. Run tests
 
@@ -209,6 +240,22 @@ npm test -w edge-node
 npm test -w central-server
 npm test -w sync-engine
 ```
+
+Central integration tests require `DATABASE_URL` (from its `.env` or environment)
+and permission to create schemas. They create and remove randomly named schemas,
+keeping existing application tables untouched. Edge tests use in-memory SQLite.
+
+To check real Edge-to-Central HTTP delivery, including a lost acknowledgement and
+an idempotent retry:
+
+```bash
+npm run build --workspace=@idg4h/edge-node
+npm run build --workspace=@idg4h/central-server
+node central-server/scripts/check-edge-sync.cjs
+```
+
+This check starts Central on a temporary loopback port, uses in-memory Edge
+storage and a temporary PostgreSQL schema, and cleans both up afterward.
 
 Tests also run automatically on every push and pull request via GitHub Actions (see `.github/workflows/test.yml`).
 

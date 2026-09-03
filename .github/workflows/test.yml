@@ -49,7 +49,12 @@ jobs:
         with:
           node-version: 20
       - run: npm ci
+      - run: npm run build -w central-server
       - run: npm test -w central-server
+        env:
+          DATABASE_URL: postgres://postgres:testpass@localhost:5432/idg4h_central_test
+      - run: npm run build -w edge-node
+      - run: node central-server/scripts/check-edge-sync.cjs
         env:
           DATABASE_URL: postgres://postgres:testpass@localhost:5432/idg4h_central_test
 
