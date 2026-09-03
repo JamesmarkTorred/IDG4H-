@@ -1,13 +1,23 @@
-import type { Persisted, SourceInput, SyncMetadata } from './record';
-
-export interface ObservationInput extends SourceInput {
+export interface ObservationInput {
   patientId: string;
   encounterId?: string;
+  nodeId: string;
+
+  sourceSystem?: string;
+  sourceRecordId?: string;
+
   code: string;
+
   valueText?: string;
   valueNumeric?: number;
   unit?: string;
+
   observedAt: string;
 }
 
-export interface Observation extends Persisted<ObservationInput>, SyncMetadata {}
+export interface Observation extends ObservationInput {
+  id: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}

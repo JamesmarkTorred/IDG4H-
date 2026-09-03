@@ -1,18 +1,23 @@
-import type { Persisted, SourceInput, SyncMetadata } from './record';
-
-export interface ImmunizationInput extends SourceInput {
+export interface ImmunizationInput {
   patientId: string;
   encounterId?: string;
+  nodeId: string;
+
+  sourceSystem?: string;
+  sourceRecordId?: string;
+
   vaccineCode: string;
   vaccineName?: string;
   doseLabel?: string;
   administeredDate?: string;
-  // The schema defaults status to 'completed' but has no closed value set.
-  status?: string;
+
+  status?: 'completed' | 'not-done' | 'unknown';
   remarks?: string;
 }
 
-export interface Immunization
-  extends Persisted<ImmunizationInput>, SyncMetadata {
-  status: string;
+export interface Immunization extends ImmunizationInput {
+  id: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
 }

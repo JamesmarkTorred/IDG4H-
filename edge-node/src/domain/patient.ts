@@ -1,8 +1,11 @@
-import type { Persisted, SourceInput, SyncMetadata } from './record';
+export type Sex = 'male' | 'female' | 'other' | 'unknown';
 
-export type PatientSex = 'male' | 'female' | 'other' | 'unknown';
+export interface PatientInput {
+  nodeId: string;
 
-export interface PatientInput extends SourceInput {
+  sourceSystem?: string;
+  sourceRecordId?: string;
+
   familySerialNo?: string;
   phicNo?: string;
 
@@ -12,7 +15,8 @@ export interface PatientInput extends SourceInput {
   suffix?: string;
 
   birthDate: string;
-  sex: PatientSex;
+  sex: Sex;
+
   civilStatus?: string;
   placeOfBirth?: string;
   religion?: string;
@@ -28,6 +32,7 @@ export interface PatientInput extends SourceInput {
 
   phicMembershipCategory?: string;
   phicMembershipType?: string;
+
   employmentStatus?: string;
   occupation?: string;
 
@@ -39,4 +44,9 @@ export interface PatientInput extends SourceInput {
   familyPosition?: string;
 }
 
-export interface Patient extends Persisted<PatientInput>, SyncMetadata {}
+export interface Patient extends PatientInput {
+  id: string;
+  version: number;
+  createdAt: string;
+  updatedAt: string;
+}
