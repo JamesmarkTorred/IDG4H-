@@ -138,8 +138,13 @@ Each workspace that needs one has its own `.env` file (not committed to source c
 ```env
 NODE_ENV=development
 PORT=4000
+NODE_ID=edge-dev-001
 DB_PATH=./data/edge-node.sqlite
 ```
+
+Edge Node loads its own `.env` even when a check script runs from the monorepo
+root. `NODE_ID` identifies the recording node independently of patient address
+fields. If it is unset, the node identity defaults to `edge-local-development`.
 
 **`central-server/.env`**
 ```env

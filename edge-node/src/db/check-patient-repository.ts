@@ -1,3 +1,4 @@
+import config from '../config';
 import {
   createPatient,
   findPatientById,
@@ -11,7 +12,7 @@ import { db } from './connection';
 const suffix = Date.now().toString();
 
 const patient = createPatient({
-  nodeId: 'edge-baan3-001',
+  nodeId: config.nodeId,
 
   familySerialNo: `TEST-FAMILY-${suffix}`,
   phicNo: `TEST-PHIC-${suffix}`,

@@ -1,3 +1,4 @@
+import config from '../config';
 import { createPatient } from './patientRepository';
 import {
   createEncounter,
@@ -9,7 +10,7 @@ import { db } from './connection';
 const suffix = Date.now().toString();
 
 const patient = createPatient({
-  nodeId: 'edge-baan3-001',
+  nodeId: config.nodeId,
 
   familySerialNo: `TEST-FAMILY-${suffix}`,
 
@@ -25,7 +26,7 @@ const patient = createPatient({
 
 const encounter = createEncounter({
   patientId: patient.id,
-  nodeId: 'edge-baan3-001',
+  nodeId: config.nodeId,
 
   sourceSystem: 'offline-form',
   sourceRecordId: `ENC-${suffix}`,
