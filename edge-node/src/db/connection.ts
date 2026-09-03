@@ -179,6 +179,68 @@ export function initSchema(): void {
         ON DELETE SET NULL
     );
 
+    CREATE TABLE IF NOT EXISTS outbox (
+      id TEXT PRIMARY KEY,
+      operation_id TEXT NOT NULL UNIQUE,
+
+      node_id TEXT NOT NULL,
+
+      entity_type TEXT NOT NULL
+        CHECK (
+          entity_type IN (
+            'patient',
+            'encounter',
+            'observation',
+            'immunization'
+          )
+        ),
+
+      entity_id TEXT NOT NULL,
+
+      operation_type TEXT NOT NULL
+        CHECK (
+          operation_type IN (
+            'create',
+            'update',
+            'delete'
+          )
+        ),
+
+      payload TEXT NOT NULL,
+
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (
+          status IN (
+            'pending',
+            'processing',
+            'failed',
+            'acknowledged'
+          )
+        ),
+
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+
+      next_attempt_at TEXT,
+      last_attempt_at TEXT,
+      last_error TEXT,
+
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      acknowledged_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_outbox_status
+      ON outbox(status);
+
+    CREATE INDEX IF NOT EXISTS idx_outbox_next_attempt
+      ON outbox(next_attempt_at);
+
+    CREATE INDEX IF NOT EXISTS idx_outbox_entity
+      ON outbox(entity_type, entity_id);
+
+    CREATE INDEX IF NOT EXISTS idx_outbox_created_at
+      ON outbox(created_at);
+
     -- Patient indexes
     CREATE INDEX IF NOT EXISTS idx_patients_phic_no
       ON patients(phic_no);
