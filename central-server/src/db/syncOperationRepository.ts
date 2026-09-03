@@ -1,35 +1,52 @@
 import { pool } from './connection';
-import type { SyncOperationInput } from '../domain/syncOperation';
+import type { SyncOperationInput, SyncOperationRecord, SyncOperationStatus } from '../domain';
 
-export class SyncOperationConflictError extends Error {}
+interface SyncOperationRow {
+  operation_id: string;
+  node_id: string;
+  entity_type: SyncOperationRecord['entityType'];
+  entity_id: string;
+  operation_type: SyncOperationRecord['operationType'];
+  payload: unknown;
+  status: SyncOperationStatus;
+  received_at: Date;
+  applied_at: Date | null;
+  failed_at: Date | null;
+  error_message: string | null;
+}
 
-// The immutable inbox is the durable receipt boundary. A later processing
-// milestone can apply these operations to Central's clinical/FHIR models.
-export async function ingestSyncOperation(input: SyncOperationInput): Promise<void> {
-  const values = [
-    input.operationId, input.nodeId, input.entityType, input.entityId,
-    input.operationType, JSON.stringify(input.payload),
-  ];
-  const inserted = await pool.query<{ operation_id: string }>(`
+function mapRow(row: SyncOperationRow): SyncOperationRecord {
+  return {
+    operationId: row.operation_id,
+    nodeId: row.node_id,
+    entityType: row.entity_type,
+    entityId: row.entity_id,
+    operationType: row.operation_type,
+    payload: row.payload,
+    status: row.status,
+    receivedAt: row.received_at.toISOString(),
+    appliedAt: row.applied_at?.toISOString(),
+    failedAt: row.failed_at?.toISOString(),
+    errorMessage: row.error_message ?? undefined,
+  };
+}
+
+export async function findSyncOperationById(operationId: string): Promise<SyncOperationRecord | undefined> {
+  const result = await pool.query<SyncOperationRow>(`
+    SELECT * FROM sync_operations WHERE operation_id = $1 LIMIT 1
+  `, [operationId]);
+  return result.rows[0] ? mapRow(result.rows[0]) : undefined;
+}
+
+export async function insertSyncOperation(input: SyncOperationInput): Promise<SyncOperationRecord> {
+  const result = await pool.query<SyncOperationRow>(`
     INSERT INTO sync_operations (
-      operation_id, node_id, entity_type, entity_id, operation_type, payload
-    ) VALUES ($1, $2, $3, $4, $5, $6::jsonb)
-    ON CONFLICT (operation_id) DO NOTHING
-    RETURNING operation_id
-  `, values);
-
-  if (inserted.rowCount === 1) return;
-
-  // A conflicting INSERT waits for the first transaction to commit. This next
-  // statement sees that committed receipt, including for concurrent retries.
-  // JSONB equality accepts equivalent payloads with different key ordering.
-  const existing = await pool.query<{ operation_id: string }>(`
-    SELECT operation_id FROM sync_operations
-    WHERE operation_id = $1 AND node_id = $2 AND entity_type = $3
-      AND entity_id = $4 AND operation_type = $5 AND payload = $6::jsonb
-  `, values);
-
-  if (existing.rowCount !== 1) {
-    throw new SyncOperationConflictError('operationId has already been used for different content.');
-  }
+      operation_id, node_id, entity_type, entity_id, operation_type, payload, status
+    ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, 'received')
+    RETURNING *
+  `, [input.operationId, input.nodeId, input.entityType, input.entityId,
+    input.operationType, JSON.stringify(input.payload)]);
+  const row = result.rows[0];
+  if (!row) throw new Error(`Synchronization operation ${input.operationId} was not stored.`);
+  return mapRow(row);
 }

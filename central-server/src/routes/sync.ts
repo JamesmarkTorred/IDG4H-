@@ -1,7 +1,7 @@
 import { Router } from 'express';
-import { ingestSyncOperation, SyncOperationConflictError } from '../db/syncOperationRepository';
-import { InvalidSyncOperationError, parseSyncOperation } from '../services/syncOperationValidation';
-import type { SyncAcknowledgement } from '../domain/syncOperation';
+import { receiveSyncOperation } from '../services/syncOperationService';
+import { InvalidSyncOperationError, parseSyncOperation } from '../services/syncValidation';
+import type { SyncOperationReceipt } from '../domain';
 
 const router = Router();
 
@@ -10,15 +10,15 @@ const router = Router();
  * /api/sync/operations:
  *   post:
  *     summary: Durably accept an Edge synchronization operation
- *     description: Identical retries are acknowledged without inserting another receipt. A reused operation ID with different content returns 409.
+ *     description: Returns the original ledger entry for an existing operation ID. Receipt is not an acknowledgement of canonical application.
  *     parameters:
  *       - in: header
  *         name: Idempotency-Key
- *         required: true
+ *         required: false
  *         schema: { type: string }
  *       - in: header
  *         name: X-IDG4H-Node-ID
- *         required: true
+ *         required: false
  *         schema: { type: string }
  *     requestBody:
  *       required: true
@@ -26,46 +26,64 @@ const router = Router();
  *         application/json:
  *           schema:
  *             type: object
- *             additionalProperties: false
  *             required: [operationId, nodeId, entityType, entityId, operationType, payload]
  *             properties:
- *               operationId: { type: string }
+ *               operationId: { type: string, format: uuid }
  *               nodeId: { type: string }
  *               entityType: { type: string, enum: [patient, encounter, observation, immunization] }
- *               entityId: { type: string }
+ *               entityId: { type: string, format: uuid }
  *               operationType: { type: string, enum: [create, update, delete] }
- *               payload: { type: object, additionalProperties: true }
+ *               payload: {}
  *     responses:
- *       200:
- *         description: Operation durably received, or identical receipt already exists
+ *       201:
+ *         description: Operation durably received, not yet applied
  *         content:
  *           application/json:
  *             schema:
  *               type: object
- *               required: [operationId]
+ *               required: [operationId, status, duplicate]
  *               properties:
  *                 operationId: { type: string }
+ *                 status: { type: string, enum: [received, applied, failed] }
+ *                 duplicate: { type: boolean }
+ *       200:
+ *         description: Existing operation returned without changing or reprocessing it
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               required: [operationId, status, duplicate]
+ *               properties:
+ *                 operationId: { type: string }
+ *                 status: { type: string, enum: [received, applied, failed] }
+ *                 duplicate: { type: boolean }
  *       400:
  *         description: Invalid operation or mismatched headers
- *       409:
- *         description: Operation ID already used for different content
  *       503:
  *         description: Storage unavailable; retry with the same operation ID
  */
-router.post<Record<string, never>, SyncAcknowledgement | { error: string }, unknown>(
+router.post<Record<string, never>, SyncOperationReceipt | { error: string }, unknown>(
   '/operations',
   async (req, res) => {
     try {
-      const operation = parseSyncOperation(
-        req.body, req.get('Idempotency-Key'), req.get('X-IDG4H-Node-ID')
-      );
-      await ingestSyncOperation(operation);
-      res.status(200).json({ operationId: operation.operationId });
+      const input = parseSyncOperation(req.body);
+      const idempotencyKey = req.get('Idempotency-Key');
+      const nodeHeader = req.get('X-IDG4H-Node-ID');
+      if (idempotencyKey !== undefined && idempotencyKey !== input.operationId) {
+        throw new InvalidSyncOperationError('Idempotency-Key does not match operationId.');
+      }
+      if (nodeHeader !== undefined && nodeHeader !== input.nodeId) {
+        throw new InvalidSyncOperationError('X-IDG4H-Node-ID does not match nodeId.');
+      }
+      const result = await receiveSyncOperation(input);
+      res.status(result.duplicate ? 200 : 201).json({
+        operationId: result.operation.operationId,
+        status: result.operation.status,
+        duplicate: result.duplicate,
+      });
     } catch (error) {
       if (error instanceof InvalidSyncOperationError) {
         res.status(400).json({ error: error.message });
-      } else if (error instanceof SyncOperationConflictError) {
-        res.status(409).json({ error: error.message });
       } else {
         res.status(503).json({ error: 'Synchronization storage is unavailable.' });
       }

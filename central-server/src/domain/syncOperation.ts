@@ -1,5 +1,6 @@
 export type SyncEntityType = 'patient' | 'encounter' | 'observation' | 'immunization';
 export type SyncOperationType = 'create' | 'update' | 'delete';
+export type SyncOperationStatus = 'received' | 'applied' | 'failed';
 
 export interface SyncOperationInput {
   operationId: string;
@@ -7,9 +8,20 @@ export interface SyncOperationInput {
   entityType: SyncEntityType;
   entityId: string;
   operationType: SyncOperationType;
-  payload: Record<string, unknown>;
+  payload: unknown;
 }
 
-export interface SyncAcknowledgement {
+export interface SyncOperationRecord extends SyncOperationInput {
+  status: SyncOperationStatus;
+  receivedAt: string;
+  appliedAt?: string;
+  failedAt?: string;
+  errorMessage?: string;
+}
+
+// A receipt does not acknowledge successful canonical application.
+export interface SyncOperationReceipt {
   operationId: string;
+  status: SyncOperationStatus;
+  duplicate: boolean;
 }
