@@ -297,3 +297,28 @@ export function markOutboxFailed(
     );
   }
 }
+
+export function recoverStaleProcessing(
+  staleBefore: string
+): number {
+  const now = new Date().toISOString();
+
+  const result = db
+    .prepare(`
+      UPDATE outbox
+      SET
+        status = 'failed',
+        last_error = 'Recovered stale processing operation after restart.',
+        next_attempt_at = @now,
+        updated_at = @now
+      WHERE status = 'processing'
+        AND last_attempt_at IS NOT NULL
+        AND last_attempt_at < @staleBefore
+    `)
+    .run({
+      now,
+      staleBefore,
+    });
+
+  return result.changes;
+}
