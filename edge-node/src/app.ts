@@ -1,6 +1,7 @@
-const express = require('express');
-const swaggerUi = require('swagger-ui-express');
-const swaggerSpec = require('./docs/swagger');
+import express from 'express';
+import swaggerUi from 'swagger-ui-express';
+import swaggerSpec from './docs/swagger';
+import healthRouter from './routes/health';
 
 const app = express();
 
@@ -10,7 +11,6 @@ app.use(express.json());
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // Routes mounted here as they're built
-const healthRouter = require('./routes/health');
 app.use('/health', healthRouter);
 
-module.exports = app;
+export default app;

@@ -15,6 +15,7 @@ jobs:
         with:
           node-version: 20
       - run: npm ci
+      - run: npm run build -w edge-node
       - run: npm test -w edge-node
 
   test-sync-engine:

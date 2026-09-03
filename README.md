@@ -26,19 +26,24 @@ This project is organized as an **npm workspaces monorepo**:
 
 ```
 idg4h/
-├── edge-node/                  # Node.js + SQLite — offline-first client for field use
+├── edge-node/                  # TypeScript + Express + SQLite — offline-first client
 │   ├── src/
 │   │   ├── db/
-│   │   │   └── connection.js   # SQLite connection + schema init
+│   │   │   ├── connection.ts   # SQLite connection + schema init
+│   │   │   ├── check-schema.ts # SQLite schema verification
+│   │   │   └── patientRepository.ts # Reserved for the next repository milestone
+│   │   ├── domain/             # City Health patient, encounter, observation, immunization types
 │   │   ├── docs/
-│   │   │   └── swagger.js      # OpenAPI spec generation
+│   │   │   └── swagger.ts      # OpenAPI spec generation
 │   │   ├── routes/
-│   │   │   └── health.js       # Health-check endpoint
+│   │   │   └── health.ts       # Health-check endpoint
 │   │   ├── __tests__/          # Jest test suite
-│   │   ├── app.js              # Express app configuration
-│   │   ├── config.js           # Environment/config loader
-│   │   └── index.js            # Entry point / server listener
+│   │   ├── app.ts              # Express app configuration
+│   │   ├── config.ts           # Environment/config loader
+│   │   └── index.ts            # Entry point / server listener
 │   ├── .env                    # Local environment variables (gitignored)
+│   ├── tsconfig.json           # Strict TypeScript compiler configuration
+│   ├── jest.config.cjs         # TypeScript test configuration
 │   └── package.json
 │
 ├── central-server/             # Node.js + PostgreSQL — central FHIR-aligned registry
@@ -88,7 +93,7 @@ idg4h/
 
 | Layer | Technology |
 |---|---|
-| Edge Node runtime | Node.js + Express |
+| Edge Node runtime | Node.js + Express (TypeScript) |
 | Edge Node storage | SQLite (`better-sqlite3`) |
 | Central Server runtime | Node.js + Express |
 | Central Server storage | PostgreSQL (`pg`) |
@@ -155,10 +160,23 @@ psql -U postgres -h localhost -c "CREATE DATABASE idg4h_central;"
 
 **Edge Node:**
 ```bash
-node edge-node/src/index.js
+npm run dev --workspace=@idg4h/edge-node
 # → listening on http://localhost:4000
 # → API docs at http://localhost:4000/api-docs
 ```
+
+For a compiled Edge Node build:
+
+```bash
+npm run build --workspace=@idg4h/edge-node
+npm start --workspace=@idg4h/edge-node
+```
+
+Edge Node uses TypeScript 5.9 for compatibility with `ts-node` and the CommonJS
+compiler configuration. The other workspaces retain their existing tooling.
+Its tests use an isolated in-memory SQLite database. The `/health` response is
+`{ "status": "ok", "db": "connected" }`; the obsolete `lastCheckId` field has
+been removed because the current schema has no health-check log table.
 
 **Central Server:**
 ```bash

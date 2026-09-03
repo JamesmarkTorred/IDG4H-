@@ -1,6 +1,6 @@
-const app = require('./app');
-const config = require('./config');
-const { initSchema } = require('./db/connection');
+import app from './app';
+import config from './config';
+import { initSchema } from './db/connection';
 
 initSchema();
 
