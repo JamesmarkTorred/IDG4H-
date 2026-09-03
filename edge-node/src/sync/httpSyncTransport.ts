@@ -53,29 +53,45 @@ export class HttpSyncTransport
       }
     );
 
-    if (!response.ok) {
-      const body =
-        await response.text();
+    const text = await response.text();
 
+    if (!response.ok) {
       throw new Error(
-        `Central sync failed with HTTP ${response.status}: ${body}`
+        `Central sync failed with HTTP ${response.status}: ${text}`
       );
     }
 
-    const body =
-      (await response.json()) as {
-        operationId?: string;
-      };
+    let body: unknown;
+    try {
+      body = JSON.parse(text);
+    } catch {
+      throw new Error('Central server returned invalid JSON.');
+    }
 
-    if (!body.operationId) {
+    if (typeof body !== 'object' || body === null || Array.isArray(body)) {
+      throw new Error('Central server returned invalid acknowledgement.');
+    }
+
+    const acknowledgement = body as {
+      operationId?: unknown;
+      status?: unknown;
+    };
+
+    if (typeof acknowledgement.operationId !== 'string' || !acknowledgement.operationId.trim()) {
       throw new Error(
-        'Central server acknowledgement did not include operationId.'
+        'Central acknowledgement did not include operationId.'
       );
+    }
+
+    // A durable receipt is not an ACK. Central must commit the canonical
+    // mutation before the Edge outbox can be marked acknowledged.
+    if (acknowledgement.status !== 'applied') {
+      throw new Error(`Central operation was not applied. Status: ${String(acknowledgement.status)}`);
     }
 
     return {
       operationId:
-        body.operationId,
+        acknowledgement.operationId,
     };
   }
 }

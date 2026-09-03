@@ -84,7 +84,8 @@ describe('HttpSyncTransport', () => {
           ok: true,
           status: 200,
 
-          json: async () => ({
+          text: async () => JSON.stringify({
+            status: 'applied',
             operationId:
               operation.operationId,
           }),
@@ -145,14 +146,14 @@ describe('HttpSyncTransport', () => {
     jest.spyOn(global, 'fetch').mockResolvedValue(new Response('{}', { status: 200 }));
 
     await expect(new HttpSyncTransport().send(sampleOperation()))
-      .rejects.toThrow('Central server acknowledgement did not include operationId.');
+      .rejects.toThrow('Central acknowledgement did not include operationId.');
   });
 
-  test('propagates invalid JSON acknowledgements as failures', async () => {
+  test('reports invalid JSON acknowledgements as failures', async () => {
     jest.spyOn(global, 'fetch').mockResolvedValue(new Response('not-json', { status: 200 }));
 
     await expect(new HttpSyncTransport().send(sampleOperation()))
-      .rejects.toMatchObject({ name: 'SyntaxError' });
+      .rejects.toThrow('Central server returned invalid JSON.');
   });
 
   test('propagates network errors so the sync engine can schedule retries', async () => {
@@ -165,7 +166,7 @@ describe('HttpSyncTransport', () => {
   test('reuses the same idempotency key and body when resending an operation', async () => {
     const operation = sampleOperation();
     const fetchMock = jest.spyOn(global, 'fetch').mockImplementation(async () =>
-      new Response(JSON.stringify({ operationId: operation.operationId }), { status: 200 })
+      new Response(JSON.stringify({ operationId: operation.operationId, status: 'applied' }), { status: 200 })
     );
     const transport = new HttpSyncTransport();
 
@@ -177,5 +178,28 @@ describe('HttpSyncTransport', () => {
     expect(fetchMock.mock.calls[1][1]?.headers).toMatchObject({
       'Idempotency-Key': operation.operationId,
     });
+  });
+  test.each(['received', 'failed', undefined])('does not acknowledge a %s receipt', async (status) => {
+    const operation = sampleOperation();
+    jest.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      operationId: operation.operationId, status, duplicate: false,
+    }), { status: 201 }));
+
+    await expect(new HttpSyncTransport().send(operation))
+      .rejects.toThrow(`Central operation was not applied. Status: ${String(status)}`);
+  });
+
+  test.each([null, [], 123, 'applied', true])('rejects a non-object acknowledgement %j', async (body) => {
+    jest.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify(body), { status: 200 }));
+    await expect(new HttpSyncTransport().send(sampleOperation()))
+      .rejects.toThrow('Central server returned invalid acknowledgement.');
+  });
+
+  test.each([null, 123, {}, '', ' '])('rejects an invalid operationId %j', async (operationId) => {
+    jest.spyOn(global, 'fetch').mockResolvedValue(new Response(JSON.stringify({
+      operationId, status: 'applied',
+    }), { status: 200 }));
+    await expect(new HttpSyncTransport().send(sampleOperation()))
+      .rejects.toThrow('Central acknowledgement did not include operationId.');
   });
 });

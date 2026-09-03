@@ -54,7 +54,7 @@ idg4h/
 │   │   ├── docs/
 │   │   │   └── swagger.ts
 │   │   ├── domain/             # Typed synchronization envelope
-│   │   ├── services/           # Runtime envelope validation
+│   │   ├── services/           # Validation + transactional canonical application
 │   │   ├── routes/
 │   │   │   ├── health.ts
 │   │   │   └── sync.ts
@@ -65,7 +65,7 @@ idg4h/
 │   ├── .env
 │   ├── tsconfig.json
 │   ├── jest.config.cjs
-│   ├── scripts/check-edge-sync.cjs # Integration check against compiled workspaces
+│   ├── scripts/check-edge-sync.cjs # Canonical create sync integration check
 │   └── package.json
 │
 ├── sync-engine/                # CRDT-based, queue-based synchronization layer
@@ -151,7 +151,9 @@ DB_PATH=./data/edge-node.sqlite
 ```
 
 Edge Node loads its own `.env` even when a check script runs from the monorepo
-root. `NODE_ID` identifies the recording node independently of patient address
+root. Relative `DB_PATH` values resolve from `edge-node/`, so root-level `npx`
+commands and npm workspace scripts use the same SQLite file. Absolute paths and
+`:memory:` are preserved. `NODE_ID` identifies the recording node independently of patient address
 fields. If it is unset, the node identity defaults to `edge-local-development`.
 The four repositories stamp new records with this configured identity. Creation
 inputs omit `nodeId`; saved records include it, and caller-supplied overrides are
@@ -221,15 +223,71 @@ before listening. Its `/health` endpoint is a liveness check returning
 `{ "status": "ok", "service": "central-server" }`.
 
 `POST /api/sync/operations` accepts `operationId`, `nodeId`, `entityType`,
-`entityId`, `operationType`, and an object `payload`. The `Idempotency-Key` and
-`X-IDG4H-Node-ID` headers must match the envelope. Central commits an immutable
-receipt in PostgreSQL before returning `{ "operationId": "..." }` with HTTP 200.
-Identical retries receive the same acknowledgement; reusing an operation ID with
-different content returns 409. Invalid envelopes return 400, and storage failures
-return 503 so Edge can retry. See `/api-docs` for the full contract.
+`entityId`, `operationType`, and a canonical entity object as `payload`. Operation and
+entity IDs must be UUIDs. The optional `Idempotency-Key` and `X-IDG4H-Node-ID`
+headers must match the envelope when supplied. Central currently applies only
+`create` operations for patients, encounters, observations, and immunizations.
+The payload contains the Edge record, including its ID, version and timestamps.
+Its ID must match `entityId`. A new operation returns HTTP 201 after commit:
 
-An acknowledgement means durable inbox acceptance. Clinical/FHIR application
-of these receipts and authentication remain separate milestones.
+```json
+{ "operationId": "...", "status": "applied", "duplicate": false }
+```
+
+Repeating an applied operation ID returns HTTP 200 with `duplicate: true` and
+`status: "applied"`. The original payload and metadata remain unchanged, even if the
+retry supplies different content. Each logical operation must use its own ID.
+Invalid payloads and unsupported update/delete operations return 400. A missing
+parent, duplicate canonical entity, or existing unapplied ledger entry returns
+409. Storage failures return 503 without an ACK.
+See `/api-docs` for the full contract.
+
+The PostgreSQL ledger records `received`, `applied`, or `failed` status plus receipt,
+application and failure timestamps and an optional error message. A single
+PostgreSQL transaction inserts the ledger entry, creates the canonical row,
+marks the operation applied and commits. Any failure rolls back both writes.
+Concurrent first deliveries are serialized by the ledger primary key.
+Startup upgrades the earlier receipt table in place,
+retaining payloads and receipt timestamps. Invalid legacy UUIDs abort migration
+without dropping rows and must be resolved before startup can succeed.
+
+Canonical tables use `originating_node_id`, stamped from the operation envelope,
+to identify the creating Edge Node independently of the patient's address.
+Children require their parent records; observations and immunizations may only
+link an encounter for the same patient. Deliver parents before children, or retry
+after their parents arrive. An existing `received` or `failed` entry is preserved
+and rejected for now; recovery/application of legacy ledger entries is deferred.
+
+**A receipt is not a synchronization ACK.** `HttpSyncTransport` requires
+`status: "applied"`, which Central now returns only after the canonical transaction
+commits. The manual command connects it to the Edge Sync Engine for create
+operations. A continuously running synchronization worker, updates, deletes,
+conflict handling, and authentication remain separate milestones.
+
+With Central running, synchronize the configured Edge database once:
+
+```bash
+npm run sync --workspace=@idg4h/edge-node
+```
+
+To create the synthetic patient and pending outbox entry in that database first:
+
+```bash
+npx ts-node ./edge-node/src/sync/create-sync-test-patient.ts
+```
+
+Inspect the resolved database path and the latest outbox entries using the
+application's configuration and connection:
+
+```bash
+npx ts-node ./edge-node/src/db/check-db-path.ts
+npx ts-node ./edge-node/src/db/check-outbox-status.ts
+```
+
+The command uses `CENTRAL_SERVER_URL` from `edge-node/.env`, recovers stale
+processing operations, sends one batch of due outbox entries, prints the counts,
+and closes SQLite. Failed operations keep their retry schedule; fatal runner
+errors set a nonzero exit code. It runs once and exits.
 
 ### 6. Run tests
 
@@ -245,17 +303,33 @@ Central integration tests require `DATABASE_URL` (from its `.env` or environment
 and permission to create schemas. They create and remove randomly named schemas,
 keeping existing application tables untouched. Edge tests use in-memory SQLite.
 
-To check real Edge-to-Central HTTP delivery, including a lost acknowledgement and
-an idempotent retry:
+Central's suite covers canonical field mapping, concurrent duplicates, dependency
+ordering, validation, rollback on application and commit failures, and migration
+of the earlier ledger table. Edge transport unit tests mock HTTP responses.
+
+To verify real HTTP create synchronization of a patient and visit, including a
+lost acknowledgement and retry:
 
 ```bash
-npm run build --workspace=@idg4h/edge-node
 npm run build --workspace=@idg4h/central-server
+npm run build --workspace=@idg4h/edge-node
 node central-server/scripts/check-edge-sync.cjs
 ```
 
-This check starts Central on a temporary loopback port, uses in-memory Edge
-storage and a temporary PostgreSQL schema, and cleans both up afterward.
+The check uses a temporary SQLite file, a temporary PostgreSQL schema and a
+loopback server, then cleans them up. It first creates one synthetic patient and
+outbox entry, invokes the actual `npm run sync` command in a separate process,
+and verifies the PostgreSQL patient, applied ledger record and Edge acknowledgement:
+
+```text
+[sync] recovered 0 stale operation(s)
+[sync] attempted=1
+[sync] acknowledged=1
+[sync] failed=0
+```
+
+It then verifies a complete visit and a lost-ACK retry, leaving four canonical
+rows with applied ledger records and acknowledged Edge outbox entries.
 
 Tests also run automatically on every push and pull request via GitHub Actions (see `.github/workflows/test.yml`).
 
