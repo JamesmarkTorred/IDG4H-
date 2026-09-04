@@ -490,3 +490,38 @@ allowlisting, job and ordered-row reads, and sanitized POST service failures.
 Validation: Edge build passed; all 208 tests across 22 suites passed, and
 `git diff --check` passed. Authentication and RBAC are now the immediate security
 gate before adding more public routes or beginning PWA integration.
+
+## 2026-09-04 — Offline Local Authentication and RBAC
+
+Added local SQLite users, roles, technical permissions, role assignments and
+revocable opaque sessions. Passwords use Node's built-in salted `scrypt` KDF.
+Session tokens contain 256 bits of randomness, are returned only in an HttpOnly
+SameSite=Strict cookie, and are stored as SHA-256 hashes. Cookie transport security
+and session lifetime are configuration values; production defaults to secure
+cookies.
+
+Added local login, logout and current-user endpoints. Login uses one generic
+invalid-credentials response for missing users, incorrect passwords and inactive
+accounts. Missing, invalid, expired and revoked sessions return structured 401
+responses, while authenticated users without the required technical permission
+receive 403. Permission changes are evaluated from SQLite on every request.
+
+Protected all patient, encounter and import reads and writes. Authentication and
+permission checks run before upload parsing or domain service calls. Health and
+login remain public. Operational health-worker role names were deliberately left
+undefined pending field validation.
+
+Added a local bootstrap CLI instead of an unauthenticated account-creation route.
+The installer supplies the initial username and password through process
+environment variables; the CLI stores only the resulting password hash and grants
+the temporary installation role the current technical permissions.
+
+Tests cover password hashing, generic credential failures, inactive accounts,
+hashed session storage, cookie attributes, session expiry and revocation, logout,
+database close/reopen persistence, independent permissions, protection of every
+health-record route, and patient plus encounter writes while Central is
+unavailable. Existing API suites now authenticate through the real login endpoint.
+
+Validation: Edge build passed; all 230 tests across 26 suites passed. PWA
+integration can now begin against authenticated local endpoints; deployment TLS
+and the final field-validated role matrix remain open requirements.

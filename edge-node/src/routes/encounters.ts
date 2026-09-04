@@ -8,6 +8,8 @@ import { findPatientById } from '../db/patientRepository';
 import { EncounterNotFoundError } from '../domain/encounterErrors';
 import { PatientNotFoundError } from '../domain/patientErrors';
 import { validateRequest } from '../middleware/errorHandler';
+import { requireAuth } from '../middleware/authenticate';
+import { requirePermission } from '../middleware/authorize';
 import {
   saveClinicalEncounter,
   type ClinicalEncounterInput,
@@ -41,41 +43,51 @@ const router = Router();
  *       400: { description: Invalid patient ID }
  *       404: { description: Patient not found }
  */
-router.post('/patients/:patientId/encounters', (req, res) => {
-  const patientId = validateRequest(
-    encounterPatientIdSchema,
-    req.params.patientId
-  );
-  const input = validateRequest(clinicalEncounterRequestSchema, req.body);
-  const {
-    observations,
-    immunizations,
-    ...encounter
-  } = input;
-  const clinicalInput: ClinicalEncounterInput = {
-    patientId,
-    encounter,
-    observations,
-    immunizations,
-  };
+router.post(
+  '/patients/:patientId/encounters',
+  requireAuth,
+  requirePermission('encounters:write'),
+  (req, res) => {
+    const patientId = validateRequest(
+      encounterPatientIdSchema,
+      req.params.patientId
+    );
+    const input = validateRequest(clinicalEncounterRequestSchema, req.body);
+    const {
+      observations,
+      immunizations,
+      ...encounter
+    } = input;
+    const clinicalInput: ClinicalEncounterInput = {
+      patientId,
+      encounter,
+      observations,
+      immunizations,
+    };
 
-  const result = saveClinicalEncounter(clinicalInput);
-  res.status(201).json(result);
-});
-
-router.get('/patients/:patientId/encounters', (req, res) => {
-  const patientId = validateRequest(
-    encounterPatientIdSchema,
-    req.params.patientId
-  );
-
-  if (!findPatientById(patientId)) {
-    throw new PatientNotFoundError(patientId);
+    const result = saveClinicalEncounter(clinicalInput);
+    res.status(201).json(result);
   }
+);
 
-  const encounters = findEncountersByPatientId(patientId);
-  res.status(200).json({ encounters });
-});
+router.get(
+  '/patients/:patientId/encounters',
+  requireAuth,
+  requirePermission('encounters:read'),
+  (req, res) => {
+    const patientId = validateRequest(
+      encounterPatientIdSchema,
+      req.params.patientId
+    );
+
+    if (!findPatientById(patientId)) {
+      throw new PatientNotFoundError(patientId);
+    }
+
+    const encounters = findEncountersByPatientId(patientId);
+    res.status(200).json({ encounters });
+  }
+);
 
 /**
  * @openapi
@@ -89,15 +101,20 @@ router.get('/patients/:patientId/encounters', (req, res) => {
  *       400: { description: Invalid encounter ID }
  *       404: { description: Encounter not found }
  */
-router.get('/encounters/:id', (req, res) => {
-  const id = validateRequest(encounterIdSchema, req.params.id);
-  const encounter = findEncounterById(id);
+router.get(
+  '/encounters/:id',
+  requireAuth,
+  requirePermission('encounters:read'),
+  (req, res) => {
+    const id = validateRequest(encounterIdSchema, req.params.id);
+    const encounter = findEncounterById(id);
 
-  if (!encounter) {
-    throw new EncounterNotFoundError(id);
+    if (!encounter) {
+      throw new EncounterNotFoundError(id);
+    }
+
+    res.status(200).json({ encounter });
   }
-
-  res.status(200).json({ encounter });
-});
+);
 
 export default router;

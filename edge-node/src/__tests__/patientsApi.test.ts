@@ -5,6 +5,8 @@ import request from 'supertest';
 import app from '../app';
 import { db } from '../db/connection';
 import * as patientRepository from '../db/patientRepository';
+import { permissionKeys } from '../auth/permissions';
+import { createAuthenticatedAgent } from './authTestHelpers';
 
 const validPatient = {
   sourceSystem: 'api-test',
@@ -16,6 +18,12 @@ const validPatient = {
 };
 
 describe('Edge patient REST API', () => {
+  let api: ReturnType<typeof request.agent>;
+
+  beforeAll(async () => {
+    api = await createAuthenticatedAgent(app, permissionKeys);
+  });
+
   beforeEach(() => {
     db.exec('DELETE FROM outbox; DELETE FROM patients;');
   });
@@ -27,7 +35,7 @@ describe('Edge patient REST API', () => {
   async function createPatient(
     overrides: Record<string, unknown> = {}
   ) {
-    return request(app)
+    return api
       .post('/api/patients')
       .send({
         ...validPatient,
@@ -75,7 +83,7 @@ describe('Edge patient REST API', () => {
   });
 
   test('missing required fields return a structured 400', async () => {
-    const response = await request(app).post('/api/patients').send({
+    const response = await api.post('/api/patients').send({
       firstName: 'Maria',
       birthDate: '1990-01-01',
       sex: 'female',
@@ -116,8 +124,8 @@ describe('Edge patient REST API', () => {
   });
 
   test('an existing strong identity returns 409 without creating a duplicate', async () => {
-    const first = await request(app).post('/api/patients').send(validPatient);
-    const duplicate = await request(app).post('/api/patients').send({
+    const first = await api.post('/api/patients').send(validPatient);
+    const duplicate = await api.post('/api/patients').send({
       ...validPatient,
       lastName: 'Different',
       firstName: 'Name',
@@ -147,7 +155,7 @@ describe('Edge patient REST API', () => {
 
   test('GET returns an existing patient', async () => {
     const created = await createPatient();
-    const response = await request(app).get(
+    const response = await api.get(
       `/api/patients/${created.body.patient.id}`
     );
 
@@ -157,7 +165,7 @@ describe('Edge patient REST API', () => {
 
   test('GET returns 404 for a missing patient', async () => {
     const id = randomUUID();
-    const response = await request(app).get(`/api/patients/${id}`);
+    const response = await api.get(`/api/patients/${id}`);
 
     expect(response.status).toBe(404);
     expect(response.body).toEqual({
@@ -170,7 +178,7 @@ describe('Edge patient REST API', () => {
 
   test('search returns exact demographic matches', async () => {
     const created = await createPatient();
-    const response = await request(app)
+    const response = await api
       .get('/api/patients/search')
       .query({
         lastName: ' santos ',
@@ -183,7 +191,7 @@ describe('Edge patient REST API', () => {
   });
 
   test('invalid search parameters return 400', async () => {
-    const response = await request(app)
+    const response = await api
       .get('/api/patients/search')
       .query({ lastName: 'Santos', firstName: 'Maria' });
 
@@ -194,7 +202,7 @@ describe('Edge patient REST API', () => {
   test('valid PATCH updates v1 to v2 and creates an update outbox operation', async () => {
     const created = await createPatient();
     const patientId = created.body.patient.id as string;
-    const response = await request(app)
+    const response = await api
       .patch(`/api/patients/${patientId}`)
       .send({
         expectedVersion: 1,
@@ -226,14 +234,14 @@ describe('Edge patient REST API', () => {
   test('stale PATCH returns 409 and changes neither patient nor outbox', async () => {
     const created = await createPatient();
     const patientId = created.body.patient.id as string;
-    const current = await request(app)
+    const current = await api
       .patch(`/api/patients/${patientId}`)
       .send({ expectedVersion: 1, contactNumber: '111' });
     const beforeOutbox = (db.prepare(
       'SELECT COUNT(*) AS count FROM outbox WHERE entity_id = ?'
     ).get(patientId) as { count: number }).count;
 
-    const stale = await request(app)
+    const stale = await api
       .patch(`/api/patients/${patientId}`)
       .send({ expectedVersion: 1, contactNumber: '222' });
 
@@ -256,7 +264,7 @@ describe('Edge patient REST API', () => {
 
   test('PATCH returns 404 for a missing patient', async () => {
     const id = randomUUID();
-    const response = await request(app)
+    const response = await api
       .patch(`/api/patients/${id}`)
       .send({ expectedVersion: 1, contactNumber: '111' });
 
@@ -265,7 +273,7 @@ describe('Edge patient REST API', () => {
   });
 
   test('malformed JSON returns a controlled 400', async () => {
-    const response = await request(app)
+    const response = await api
       .post('/api/patients')
       .set('Content-Type', 'application/json')
       .send('{"lastName":');
@@ -289,7 +297,7 @@ describe('Edge patient REST API', () => {
     const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);
 
     try {
-      const response = await request(app).get(`/api/patients/${id}`);
+      const response = await api.get(`/api/patients/${id}`);
 
       expect(response.status).toBe(500);
       expect(response.body).toEqual({

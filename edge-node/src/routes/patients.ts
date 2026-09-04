@@ -8,6 +8,8 @@ import {
   ApiError,
   validateRequest,
 } from '../middleware/errorHandler';
+import { requireAuth } from '../middleware/authenticate';
+import { requirePermission } from '../middleware/authorize';
 import { PatientNotFoundError } from '../domain/patientErrors';
 import { registerPatient } from '../services/patientRegistrationService';
 import { updatePatientWithOutbox } from '../services/patientWriteService';
@@ -33,16 +35,21 @@ const router = Router();
  *       200: { description: Matching patients }
  *       400: { description: Invalid search parameters }
  */
-router.get('/search', (req, res) => {
-  const query = validateRequest(patientSearchSchema, req.query);
-  const patients = searchPatientsByDemographics(
-    query.lastName,
-    query.firstName,
-    query.birthDate
-  );
+router.get(
+  '/search',
+  requireAuth,
+  requirePermission('patients:read'),
+  (req, res) => {
+    const query = validateRequest(patientSearchSchema, req.query);
+    const patients = searchPatientsByDemographics(
+      query.lastName,
+      query.firstName,
+      query.birthDate
+    );
 
-  res.status(200).json({ patients });
-});
+    res.status(200).json({ patients });
+  }
+);
 
 /**
  * @openapi
@@ -56,16 +63,21 @@ router.get('/search', (req, res) => {
  *       400: { description: Invalid patient ID }
  *       404: { description: Patient not found }
  */
-router.get('/:id', (req, res) => {
-  const id = validateRequest(patientIdSchema, req.params.id);
-  const patient = findPatientById(id);
+router.get(
+  '/:id',
+  requireAuth,
+  requirePermission('patients:read'),
+  (req, res) => {
+    const id = validateRequest(patientIdSchema, req.params.id);
+    const patient = findPatientById(id);
 
-  if (!patient) {
-    throw new PatientNotFoundError(id);
+    if (!patient) {
+      throw new PatientNotFoundError(id);
+    }
+
+    res.status(200).json({ patient });
   }
-
-  res.status(200).json({ patient });
-});
+);
 
 /**
  * @openapi
@@ -77,21 +89,26 @@ router.get('/:id', (req, res) => {
  *       400: { description: Invalid patient input }
  *       409: { description: Existing patient candidates require review }
  */
-router.post('/', (req, res) => {
-  const input = validateRequest(patientCreateSchema, req.body);
-  const result = registerPatient(input);
+router.post(
+  '/',
+  requireAuth,
+  requirePermission('patients:write'),
+  (req, res) => {
+    const input = validateRequest(patientCreateSchema, req.body);
+    const result = registerPatient(input);
 
-  if (!result.created || !result.patient) {
-    throw new ApiError(
-      409,
-      'IDENTITY_CONFLICT',
-      'Potential existing patient matches require review.',
-      { candidates: result.candidates }
-    );
+    if (!result.created || !result.patient) {
+      throw new ApiError(
+        409,
+        'IDENTITY_CONFLICT',
+        'Potential existing patient matches require review.',
+        { candidates: result.candidates }
+      );
+    }
+
+    res.status(201).json({ patient: result.patient });
   }
-
-  res.status(201).json({ patient: result.patient });
-});
+);
 
 /**
  * @openapi
@@ -106,15 +123,20 @@ router.post('/', (req, res) => {
  *       404: { description: Patient not found }
  *       409: { description: Patient version conflict }
  */
-router.patch('/:id', (req, res) => {
-  const id = validateRequest(patientIdSchema, req.params.id);
-  const input = validateRequest(patientUpdateSchema, req.body);
-  const patient = updatePatientWithOutbox({
-    id,
-    ...input,
-  });
+router.patch(
+  '/:id',
+  requireAuth,
+  requirePermission('patients:write'),
+  (req, res) => {
+    const id = validateRequest(patientIdSchema, req.params.id);
+    const input = validateRequest(patientUpdateSchema, req.body);
+    const patient = updatePatientWithOutbox({
+      id,
+      ...input,
+    });
 
-  res.status(200).json({ patient });
-});
+    res.status(200).json({ patient });
+  }
+);
 
 export default router;

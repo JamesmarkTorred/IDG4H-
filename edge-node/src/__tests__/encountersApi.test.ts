@@ -7,12 +7,19 @@ import { db } from '../db/connection';
 import * as encounterRepository from '../db/encounterRepository';
 import { createPatient } from '../db/patientRepository';
 import type { Patient } from '../domain';
+import { permissionKeys } from '../auth/permissions';
+import { createAuthenticatedAgent } from './authTestHelpers';
 
 const encounterDate = '2026-09-04T09:30:00.000Z';
 const observedAt = '2026-09-04T09:35:00.000Z';
 
 describe('Edge clinical encounter REST API', () => {
   let patient: Patient;
+  let api: ReturnType<typeof request.agent>;
+
+  beforeAll(async () => {
+    api = await createAuthenticatedAgent(app, permissionKeys);
+  });
 
   beforeEach(() => {
     db.exec(`
@@ -40,7 +47,7 @@ describe('Edge clinical encounter REST API', () => {
   });
 
   function postEncounter(body: Record<string, unknown>) {
-    return request(app)
+    return api
       .post(`/api/patients/${patient.id}/encounters`)
       .send(body);
   }
@@ -187,7 +194,7 @@ describe('Edge clinical encounter REST API', () => {
 
   test('nonexistent patient returns 404 without visit writes', async () => {
     const missingPatientId = randomUUID();
-    const response = await request(app)
+    const response = await api
       .post(`/api/patients/${missingPatientId}/encounters`)
       .send({ encounterDate });
 
@@ -253,7 +260,7 @@ describe('Edge clinical encounter REST API', () => {
   });
 
   test('non-finite numeric observation returns 400', async () => {
-    const response = await request(app)
+    const response = await api
       .post(`/api/patients/${patient.id}/encounters`)
       .set('Content-Type', 'application/json')
       .send(
@@ -339,7 +346,7 @@ describe('Edge clinical encounter REST API', () => {
       });
     const log = jest.spyOn(console, 'error').mockImplementation(() => undefined);
 
-    const response = await request(app).get(`/api/encounters/${encounterId}`);
+    const response = await api.get(`/api/encounters/${encounterId}`);
 
     expect(response.status).toBe(500);
     expect(response.body).toEqual({
@@ -357,7 +364,7 @@ describe('Edge clinical encounter REST API', () => {
 
   test('read encounter by ID returns 200', async () => {
     const created = await postEncounter({ encounterDate });
-    const response = await request(app).get(
+    const response = await api.get(
       `/api/encounters/${created.body.encounter.id}`
     );
 
@@ -367,7 +374,7 @@ describe('Edge clinical encounter REST API', () => {
 
   test('missing encounter returns 404', async () => {
     const encounterId = randomUUID();
-    const response = await request(app).get(`/api/encounters/${encounterId}`);
+    const response = await api.get(`/api/encounters/${encounterId}`);
 
     expect(response.status).toBe(404);
     expect(response.body).toEqual({
@@ -386,7 +393,7 @@ describe('Edge clinical encounter REST API', () => {
       encounterDate: '2026-09-04T08:00:00.000Z',
     });
 
-    const response = await request(app).get(
+    const response = await api.get(
       `/api/patients/${patient.id}/encounters`
     );
 

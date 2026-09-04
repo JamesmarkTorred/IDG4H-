@@ -9,6 +9,8 @@ import { db } from '../db/connection';
 import * as importRepository from '../db/importRepository';
 import * as patientImportService from '../import/patientImportService';
 import { maxImportUploadBytes } from '../middleware/upload';
+import { permissionKeys } from '../auth/permissions';
+import { createAuthenticatedAgent } from './authTestHelpers';
 
 const csvFixture = fs.readFileSync(path.resolve(
   __dirname,
@@ -22,6 +24,12 @@ const header =
   'source_record_id,last_name,first_name,birth_date,sex,barangay,municipality_city';
 
 describe('Edge patient import REST API', () => {
+  let api: ReturnType<typeof request.agent>;
+
+  beforeAll(async () => {
+    api = await createAuthenticatedAgent(app, permissionKeys);
+  });
+
   beforeEach(() => {
     db.exec(`
       DELETE FROM import_jobs;
@@ -45,7 +53,7 @@ describe('Edge patient import REST API', () => {
     sourceSystem = 'iClinicSys-synthetic',
     contentType?: string
   ) {
-    return request(app)
+    return api
       .post('/api/imports/patients')
       .field('mapper', mapper)
       .field('sourceSystem', sourceSystem)
@@ -201,7 +209,7 @@ describe('Edge patient import REST API', () => {
   });
 
   test('missing file returns 400', async () => {
-    const response = await request(app)
+    const response = await api
       .post('/api/imports/patients')
       .field('mapper', 'synthetic-patient')
       .field('sourceSystem', 'iClinicSys-synthetic');
@@ -218,7 +226,7 @@ describe('Edge patient import REST API', () => {
   });
 
   test('multiple files are rejected', async () => {
-    const response = await request(app)
+    const response = await api
       .post('/api/imports/patients')
       .field('mapper', 'synthetic-patient')
       .field('sourceSystem', 'iClinicSys-synthetic')
@@ -267,7 +275,7 @@ describe('Edge patient import REST API', () => {
 
   test('GET import returns job status and counters', async () => {
     const imported = await upload(csvFixture, 'patients.csv');
-    const response = await request(app).get(
+    const response = await api.get(
       `/api/imports/${imported.body.job.id}`
     );
 
@@ -277,7 +285,7 @@ describe('Edge patient import REST API', () => {
 
   test('GET missing import returns 404', async () => {
     const id = randomUUID();
-    const response = await request(app).get(`/api/imports/${id}`);
+    const response = await api.get(`/api/imports/${id}`);
 
     expect(response.status).toBe(404);
     expect(response.body.error).toEqual({
@@ -294,7 +302,7 @@ describe('Edge patient import REST API', () => {
       'API-ROWS-002,Second,Patient,invalid,unknown,Baan 3,Butuan City',
     ].join('\n');
     const imported = await upload(csv, 'rows.csv');
-    const response = await request(app).get(
+    const response = await api.get(
       `/api/imports/${imported.body.job.id}/rows`
     );
 

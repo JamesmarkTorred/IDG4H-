@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import path from 'node:path';
 import fs from 'node:fs';
 import config from '../config';
+import { initializeAuthSchema } from '../auth/schema';
 
 // Ensure the data directory exists before SQLite tries to write there
 const dbDir = path.dirname(config.dbPath);
@@ -576,6 +577,7 @@ export function initSchema(): void {
   `);
 
   migrateLegacyImportAccounting();
+  initializeAuthSchema(db);
 }
 
 initSchema();

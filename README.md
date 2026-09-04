@@ -160,6 +160,8 @@ PORT=4000
 NODE_ID=edge-dev-001
 CENTRAL_SERVER_URL=http://localhost:5000
 DB_PATH=./data/edge-node.sqlite
+AUTH_SESSION_TTL_MS=28800000
+AUTH_COOKIE_SECURE=false
 ```
 
 Edge Node loads its own `.env` even when a check script runs from the monorepo
@@ -200,8 +202,8 @@ are rejected. Registration delegates to identity candidate detection and the
 transactional patient/outbox write service; updates require a positive integer
 `expectedVersion`. Errors use a stable `{ "error": { "code", "message" } }`
 shape, with validation details where useful, and unexpected storage failures do
-not expose internal messages. These endpoints do not yet have authentication or
-RBAC and are intended for local development until that milestone is complete.
+not expose internal messages. Access requires a local session and the matching
+`patients:read` or `patients:write` permission.
 
 Clinical visits use the existing atomic encounter service through:
 
@@ -233,6 +235,39 @@ MIME type, then calls the existing CSV/XLSX import service. Invalid parser input
 retains a failed audit job and returns its ID in a controlled response. Uploaded
 files are not written to disk. Official iClinicSys mapping remains unavailable
 until a real export schema is verified.
+
+Local authentication is available without Central or internet access:
+
+```text
+POST /api/auth/login
+POST /api/auth/logout
+GET  /api/auth/me
+```
+
+Passwords are stored as salted `scrypt` hashes. Login creates an opaque random
+session token in an `HttpOnly`, `SameSite=Strict` cookie; SQLite stores only its
+SHA-256 hash. Sessions are immediately revocable, expire according to
+`AUTH_SESSION_TTL_MS`, and survive Edge restarts. `AUTH_COOKIE_SECURE` is `false`
+for local HTTP development and must be `true` for HTTPS deployment.
+
+The current permission keys are technical capabilities: `patients:read`,
+`patients:write`, `encounters:read`, `encounters:write`, `imports:read`,
+`imports:write`, and `users:manage`. Operational health-worker role names and
+their assignments remain pending field validation.
+
+Create the first installation account locally; no unauthenticated user-creation
+HTTP endpoint exists:
+
+```powershell
+$env:IDG4H_BOOTSTRAP_USERNAME = 'local-admin'
+$env:IDG4H_BOOTSTRAP_PASSWORD = Read-Host 'Bootstrap password' -MaskInput
+npm run auth:bootstrap --workspace=@idg4h/edge-node
+Remove-Item Env:IDG4H_BOOTSTRAP_PASSWORD
+```
+
+The bootstrap role is explicitly an installation role with the current technical
+permissions. Replace its assignment after the operational role matrix is
+validated.
 
 **`central-server/.env`**
 ```env

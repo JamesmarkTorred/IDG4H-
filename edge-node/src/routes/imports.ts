@@ -13,6 +13,8 @@ import {
   ApiError,
   validateRequest,
 } from '../middleware/errorHandler';
+import { requireAuth } from '../middleware/authenticate';
+import { requirePermission } from '../middleware/authorize';
 import {
   importPatientsFromCsv,
   importPatientsFromXlsx,
@@ -60,6 +62,8 @@ function publicImportJob(job: ImportJob): ImportJob {
  */
 router.post(
   '/imports/patients',
+  requireAuth,
+  requirePermission('imports:write'),
   uploadPatientImport,
   async (req, res) => {
     const fields = validateRequest(patientImportFieldsSchema, req.body);
@@ -103,21 +107,26 @@ router.post(
  *       200: { description: Ordered import row results }
  *       404: { description: Import job not found }
  */
-router.get('/imports/:id/rows', (req, res) => {
-  const id = validateRequest(importIdSchema, req.params.id);
-  const job = findImportJobById(id);
+router.get(
+  '/imports/:id/rows',
+  requireAuth,
+  requirePermission('imports:read'),
+  (req, res) => {
+    const id = validateRequest(importIdSchema, req.params.id);
+    const job = findImportJobById(id);
 
-  if (!job) {
-    throw new ApiError(
-      404,
-      'IMPORT_NOT_FOUND',
-      `Import job ${id} was not found.`
-    );
+    if (!job) {
+      throw new ApiError(
+        404,
+        'IMPORT_NOT_FOUND',
+        `Import job ${id} was not found.`
+      );
+    }
+
+    const rows = findImportRowsByJobId(id);
+    res.status(200).json({ rows });
   }
-
-  const rows = findImportRowsByJobId(id);
-  res.status(200).json({ rows });
-});
+);
 
 /**
  * @openapi
@@ -130,19 +139,24 @@ router.get('/imports/:id/rows', (req, res) => {
  *       200: { description: Import job found }
  *       404: { description: Import job not found }
  */
-router.get('/imports/:id', (req, res) => {
-  const id = validateRequest(importIdSchema, req.params.id);
-  const job = findImportJobById(id);
+router.get(
+  '/imports/:id',
+  requireAuth,
+  requirePermission('imports:read'),
+  (req, res) => {
+    const id = validateRequest(importIdSchema, req.params.id);
+    const job = findImportJobById(id);
 
-  if (!job) {
-    throw new ApiError(
-      404,
-      'IMPORT_NOT_FOUND',
-      `Import job ${id} was not found.`
-    );
+    if (!job) {
+      throw new ApiError(
+        404,
+        'IMPORT_NOT_FOUND',
+        `Import job ${id} was not found.`
+      );
+    }
+
+    res.status(200).json({ job: publicImportJob(job) });
   }
-
-  res.status(200).json({ job: publicImportJob(job) });
-});
+);
 
 export default router;

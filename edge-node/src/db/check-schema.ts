@@ -14,6 +14,12 @@ const expectedTables = [
   'outbox',
   'import_jobs',
   'import_row_results',
+  'users',
+  'roles',
+  'permissions',
+  'user_roles',
+  'role_permissions',
+  'auth_sessions',
 ];
 
 console.log('Checking SQLite schema...\n');
