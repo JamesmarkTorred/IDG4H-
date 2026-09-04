@@ -224,3 +224,23 @@ Replayed that exact stored operation ID, envelope and payload over HTTP. Central
 returned 200 with the same ID, status applied and duplicate true. Before/after
 queries found one patient and one ledger row; full records, ledger timestamps
 and the Edge acknowledgement remained unchanged. Idempotency replay is PASS.
+
+## 2026-09-04 — Edge Patient Updates and Optimistic Versioning
+
+Added `PatientUpdateInput` with a required expected version. The patient repository
+loads the current record, rejects missing or stale inputs, applies partial field
+changes with an ID-and-version predicate, preserves omitted values, increments
+the version, and returns the updated record.
+
+Added `updatePatientWithOutbox`, which commits the patient update and a complete
+patient update operation in one SQLite transaction. Tests verify v1-to-v2 updates,
+field preservation, exact update payloads, stale and missing-patient rejection,
+no extra outbox entries on conflicts, and full rollback when outbox insertion
+fails.
+
+The root dependency tree currently exposes TypeScript 7, which is incompatible
+with ts-jest. Jest now selects each workspace's installed TypeScript 5.9 compiler
+explicitly; dependency versions were not changed.
+
+Validation: Edge build passed; all 114 tests across 13 suites passed. Central
+optimistic patient update application remains the next milestone.

@@ -49,3 +49,39 @@ export interface Patient extends PatientInput {
   createdAt: string;
   updatedAt: string;
 }
+
+export interface PatientUpdateInput {
+  id: string;
+  expectedVersion: number;
+  sourceSystem?: string;
+  sourceRecordId?: string;
+  familySerialNo?: string;
+  phicNo?: string;
+  lastName?: string;
+  firstName?: string;
+  middleName?: string;
+  suffix?: string;
+  birthDate?: string;
+  sex?: Sex;
+  civilStatus?: string;
+  placeOfBirth?: string;
+  religion?: string;
+  educationalAttainment?: string;
+  contactNumber?: string;
+  addressLine?: string;
+  purok?: string;
+  barangay?: string;
+  municipalityCity?: string;
+  province?: string;
+  district?: string;
+  phicMembershipCategory?: string;
+  phicMembershipType?: string;
+  employmentStatus?: string;
+  occupation?: string;
+  spouseName?: string;
+  spouseBirthDate?: string;
+  spouseOccupation?: string;
+  memberMaidenName?: string;
+  fatherName?: string;
+  familyPosition?: string;
+}

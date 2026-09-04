@@ -1,7 +1,7 @@
 import { randomUUID } from 'crypto';
 import config from '../config';
 import { db } from './connection';
-import type { Patient, PatientInput } from '../domain';
+import type { Patient, PatientInput, PatientUpdateInput } from '../domain';
 
 interface PatientRow {
   id: string;
@@ -339,4 +339,293 @@ export function findPatientBySourceRecord(
     ) as PatientRow | undefined;
 
   return row ? mapPatientRow(row) : undefined;
+}
+
+export function updatePatient(
+  input: PatientUpdateInput
+): Patient {
+  const existing =
+    findPatientById(input.id);
+
+  if (!existing) {
+    throw new Error(
+      `Patient ${input.id} does not exist.`
+    );
+  }
+
+  if (
+    existing.version !==
+    input.expectedVersion
+  ) {
+    throw new Error(
+      `Patient version conflict. Expected ${input.expectedVersion}, current ${existing.version}.`
+    );
+  }
+
+  const now =
+    new Date().toISOString();
+
+  const nextVersion =
+    existing.version + 1;
+
+  const result = db
+    .prepare(`
+      UPDATE patients
+      SET
+        source_system = @sourceSystem,
+        source_record_id = @sourceRecordId,
+
+        family_serial_no = @familySerialNo,
+        phic_no = @phicNo,
+
+        last_name = @lastName,
+        first_name = @firstName,
+        middle_name = @middleName,
+        suffix = @suffix,
+
+        birth_date = @birthDate,
+        sex = @sex,
+
+        civil_status = @civilStatus,
+        place_of_birth = @placeOfBirth,
+        religion = @religion,
+        educational_attainment = @educationalAttainment,
+
+        contact_number = @contactNumber,
+
+        address_line = @addressLine,
+        purok = @purok,
+        barangay = @barangay,
+        municipality_city = @municipalityCity,
+        province = @province,
+        district = @district,
+
+        phic_membership_category = @phicMembershipCategory,
+        phic_membership_type = @phicMembershipType,
+
+        employment_status = @employmentStatus,
+        occupation = @occupation,
+
+        spouse_name = @spouseName,
+        spouse_birth_date = @spouseBirthDate,
+        spouse_occupation = @spouseOccupation,
+
+        member_maiden_name = @memberMaidenName,
+        father_name = @fatherName,
+        family_position = @familyPosition,
+
+        version = @nextVersion,
+        updated_at = @updatedAt
+
+      WHERE id = @id
+        AND version = @expectedVersion
+    `)
+    .run({
+      id: input.id,
+
+      expectedVersion:
+        input.expectedVersion,
+
+      sourceSystem:
+        nullable(
+          input.sourceSystem ??
+            existing.sourceSystem
+        ),
+
+      sourceRecordId:
+        nullable(
+          input.sourceRecordId ??
+            existing.sourceRecordId
+        ),
+
+      familySerialNo:
+        nullable(
+          input.familySerialNo ??
+            existing.familySerialNo
+        ),
+
+      phicNo:
+        nullable(
+          input.phicNo ??
+            existing.phicNo
+        ),
+
+      lastName:
+        (
+          input.lastName ??
+          existing.lastName
+        ).trim(),
+
+      firstName:
+        (
+          input.firstName ??
+          existing.firstName
+        ).trim(),
+
+      middleName:
+        nullable(
+          input.middleName ??
+            existing.middleName
+        ),
+
+      suffix:
+        nullable(
+          input.suffix ??
+            existing.suffix
+        ),
+
+      birthDate:
+        input.birthDate ??
+        existing.birthDate,
+
+      sex:
+        input.sex ??
+        existing.sex,
+
+      civilStatus:
+        nullable(
+          input.civilStatus ??
+            existing.civilStatus
+        ),
+
+      placeOfBirth:
+        nullable(
+          input.placeOfBirth ??
+            existing.placeOfBirth
+        ),
+
+      religion:
+        nullable(
+          input.religion ??
+            existing.religion
+        ),
+
+      educationalAttainment:
+        nullable(
+          input.educationalAttainment ??
+            existing.educationalAttainment
+        ),
+
+      contactNumber:
+        nullable(
+          input.contactNumber ??
+            existing.contactNumber
+        ),
+
+      addressLine:
+        nullable(
+          input.addressLine ??
+            existing.addressLine
+        ),
+
+      purok:
+        nullable(
+          input.purok ??
+            existing.purok
+        ),
+
+      barangay:
+        nullable(
+          input.barangay ??
+            existing.barangay
+        ),
+
+      municipalityCity:
+        nullable(
+          input.municipalityCity ??
+            existing.municipalityCity
+        ),
+
+      province:
+        nullable(
+          input.province ??
+            existing.province
+        ),
+
+      district:
+        nullable(
+          input.district ??
+            existing.district
+        ),
+
+      phicMembershipCategory:
+        nullable(
+          input.phicMembershipCategory ??
+            existing.phicMembershipCategory
+        ),
+
+      phicMembershipType:
+        nullable(
+          input.phicMembershipType ??
+            existing.phicMembershipType
+        ),
+
+      employmentStatus:
+        nullable(
+          input.employmentStatus ??
+            existing.employmentStatus
+        ),
+
+      occupation:
+        nullable(
+          input.occupation ??
+            existing.occupation
+        ),
+
+      spouseName:
+        nullable(
+          input.spouseName ??
+            existing.spouseName
+        ),
+
+      spouseBirthDate:
+        nullable(
+          input.spouseBirthDate ??
+            existing.spouseBirthDate
+        ),
+
+      spouseOccupation:
+        nullable(
+          input.spouseOccupation ??
+            existing.spouseOccupation
+        ),
+
+      memberMaidenName:
+        nullable(
+          input.memberMaidenName ??
+            existing.memberMaidenName
+        ),
+
+      fatherName:
+        nullable(
+          input.fatherName ??
+            existing.fatherName
+        ),
+
+      familyPosition:
+        nullable(
+          input.familyPosition ??
+            existing.familyPosition
+        ),
+
+      nextVersion,
+      updatedAt: now,
+    });
+
+  if (result.changes !== 1) {
+    throw new Error(
+      `Patient ${input.id} update failed because the version changed concurrently.`
+    );
+  }
+
+  const updated =
+    findPatientById(input.id);
+
+  if (!updated) {
+    throw new Error(
+      `Patient ${input.id} was updated but could not be retrieved.`
+    );
+  }
+
+  return updated;
 }

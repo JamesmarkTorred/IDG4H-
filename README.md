@@ -166,6 +166,13 @@ operation in the same SQLite transaction; a failure rolls back both. Repository
 creation functions are low-level persistence primitives used by these services
 and repository tests, and do not enqueue synchronization operations themselves.
 
+Patient changes use `updatePatientWithOutbox({ id, expectedVersion, ...changes })`.
+The repository updates only when the stored version matches `expectedVersion`,
+increments the record version, preserves omitted fields, and queues the complete
+updated record in the same SQLite transaction. A stale caller receives a version
+conflict and creates no outbox entry. Central patient update application is the
+next step; the current endpoint still rejects update operations.
+
 **`central-server/.env`**
 ```env
 NODE_ENV=development
