@@ -6,3 +6,4 @@ export * from './outbox';
 export * from './import';
 
 export * from './patientErrors';
+export * from './encounterErrors';

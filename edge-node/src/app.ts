@@ -2,6 +2,7 @@ import express from 'express';
 import swaggerUi from 'swagger-ui-express';
 import swaggerSpec from './docs/swagger';
 import { errorHandler } from './middleware/errorHandler';
+import encounterRouter from './routes/encounters';
 import healthRouter from './routes/health';
 import patientRouter from './routes/patients';
 
@@ -15,6 +16,7 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 // Routes mounted here as they're built
 app.use('/health', healthRouter);
 app.use('/api/patients', patientRouter);
+app.use('/api', encounterRouter);
 
 app.use(errorHandler);
 

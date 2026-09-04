@@ -1,6 +1,7 @@
 import type { ErrorRequestHandler } from 'express';
-import type { ZodError } from 'zod';
+import type { ZodError, ZodType } from 'zod';
 
+import { EncounterNotFoundError } from '../domain/encounterErrors';
 import {
   PatientNotFoundError,
   PatientVersionConflictError,
@@ -38,6 +39,16 @@ export function requestValidationError(error: ZodError): ApiError {
       })),
     }
   );
+}
+
+export function validateRequest<T>(schema: ZodType<T>, value: unknown): T {
+  const result = schema.safeParse(value);
+
+  if (!result.success) {
+    throw requestValidationError(result.error);
+  }
+
+  return result.data;
 }
 
 function isMalformedJson(error: unknown): boolean {
@@ -85,6 +96,16 @@ export const errorHandler: ErrorRequestHandler = (
       error: {
         code: 'PATIENT_NOT_FOUND',
         message: `Patient ${error.patientId} was not found.`,
+      },
+    } satisfies ApiErrorBody);
+    return;
+  }
+
+  if (error instanceof EncounterNotFoundError) {
+    res.status(404).json({
+      error: {
+        code: 'ENCOUNTER_NOT_FOUND',
+        message: `Encounter ${error.encounterId} was not found.`,
       },
     } satisfies ApiErrorBody);
     return;

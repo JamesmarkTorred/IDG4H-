@@ -1,6 +1,13 @@
 export class PatientNotFoundError extends Error {
-  constructor(readonly patientId: string) {
-    super(`Patient ${patientId} does not exist.`);
+  constructor(
+    readonly patientId: string,
+    operation?: string
+  ) {
+    super(
+      operation
+        ? `Cannot create ${operation}: patient ${patientId} does not exist.`
+        : `Patient ${patientId} does not exist.`
+    );
     this.name = 'PatientNotFoundError';
   }
 }

@@ -1,5 +1,4 @@
 import { Router } from 'express';
-import type { ZodType } from 'zod';
 
 import {
   findPatientById,
@@ -7,7 +6,7 @@ import {
 } from '../db/patientRepository';
 import {
   ApiError,
-  requestValidationError,
+  validateRequest,
 } from '../middleware/errorHandler';
 import { PatientNotFoundError } from '../domain/patientErrors';
 import { registerPatient } from '../services/patientRegistrationService';
@@ -20,16 +19,6 @@ import {
 } from '../validation/patientSchemas';
 
 const router = Router();
-
-function validate<T>(schema: ZodType<T>, value: unknown): T {
-  const result = schema.safeParse(value);
-
-  if (!result.success) {
-    throw requestValidationError(result.error);
-  }
-
-  return result.data;
-}
 
 /**
  * @openapi
@@ -45,7 +34,7 @@ function validate<T>(schema: ZodType<T>, value: unknown): T {
  *       400: { description: Invalid search parameters }
  */
 router.get('/search', (req, res) => {
-  const query = validate(patientSearchSchema, req.query);
+  const query = validateRequest(patientSearchSchema, req.query);
   const patients = searchPatientsByDemographics(
     query.lastName,
     query.firstName,
@@ -68,7 +57,7 @@ router.get('/search', (req, res) => {
  *       404: { description: Patient not found }
  */
 router.get('/:id', (req, res) => {
-  const id = validate(patientIdSchema, req.params.id);
+  const id = validateRequest(patientIdSchema, req.params.id);
   const patient = findPatientById(id);
 
   if (!patient) {
@@ -89,7 +78,7 @@ router.get('/:id', (req, res) => {
  *       409: { description: Existing patient candidates require review }
  */
 router.post('/', (req, res) => {
-  const input = validate(patientCreateSchema, req.body);
+  const input = validateRequest(patientCreateSchema, req.body);
   const result = registerPatient(input);
 
   if (!result.created || !result.patient) {
@@ -118,8 +107,8 @@ router.post('/', (req, res) => {
  *       409: { description: Patient version conflict }
  */
 router.patch('/:id', (req, res) => {
-  const id = validate(patientIdSchema, req.params.id);
-  const input = validate(patientUpdateSchema, req.body);
+  const id = validateRequest(patientIdSchema, req.params.id);
+  const input = validateRequest(patientUpdateSchema, req.body);
   const patient = updatePatientWithOutbox({
     id,
     ...input,

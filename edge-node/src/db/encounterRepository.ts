@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import config from '../config';
 import { db } from './connection';
 import type { Encounter, EncounterInput } from '../domain';
+import { PatientNotFoundError } from '../domain/patientErrors';
 
 interface EncounterRow {
   id: string;
@@ -72,9 +73,7 @@ export function createEncounter(
     .get(input.patientId);
 
   if (!patientExists) {
-    throw new Error(
-      `Cannot create encounter: patient ${input.patientId} does not exist.`
-    );
+    throw new PatientNotFoundError(input.patientId, 'encounter');
   }
 
   const id = randomUUID();

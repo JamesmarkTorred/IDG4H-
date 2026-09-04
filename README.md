@@ -37,7 +37,8 @@ idg4h/
 │   │   │   └── swagger.ts      # OpenAPI spec generation
 │   │   ├── routes/
 │   │   │   ├── health.ts       # Health-check endpoint
-│   │   │   └── patients.ts     # Validated patient REST boundary
+│   │   │   ├── patients.ts     # Validated patient REST boundary
+│   │   │   └── encounters.ts   # Atomic clinical encounter REST boundary
 │   │   ├── validation/          # Strict runtime request schemas
 │   │   ├── middleware/          # Structured, sanitized API errors
 │   │   ├── import/              # Generic CSV/XLSX parsing and audited patient import
@@ -200,6 +201,21 @@ transactional patient/outbox write service; updates require a positive integer
 shape, with validation details where useful, and unexpected storage failures do
 not expose internal messages. These endpoints do not yet have authentication or
 RBAC and are intended for local development until that milestone is complete.
+
+Clinical visits use the existing atomic encounter service through:
+
+```text
+POST /api/patients/:patientId/encounters
+GET  /api/patients/:patientId/encounters
+GET  /api/encounters/:id
+```
+
+One validated POST can create an encounter with zero or more observations and
+immunizations. The route supplies `patientId` from the URL and the repositories
+stamp `nodeId`; neither field is accepted from the body. Every domain record and
+its outbox operation commit together. Observation input requires exactly one of
+`valueText` or finite `valueNumeric`. Separate observation and immunization write
+endpoints are deferred so callers cannot bypass the visit transaction.
 
 **`central-server/.env`**
 ```env

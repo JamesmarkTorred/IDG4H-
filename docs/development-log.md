@@ -434,3 +434,31 @@ updates, stale-update rollback, malformed JSON and sanitized unexpected failures
 
 Validation: Edge build passed; all 173 tests across 20 suites passed. Authentication
 and RBAC remain required before treating the local REST API as deployment-ready.
+
+## 2026-09-04 — Atomic Clinical Encounter REST API
+
+Added the clinical encounter write boundary at
+`POST /api/patients/:patientId/encounters`. It validates the request and delegates
+one complete visit to `ClinicalEncounterService`; routes do not call encounter,
+observation or immunization creation repositories directly. The existing service
+transaction continues to commit the encounter, optional children and every outbox
+operation as one unit.
+
+Added strict Zod schemas for encounter, observation and immunization input. Route
+patient IDs and encounter IDs must be UUIDs, clinical timestamps must be valid ISO
+datetimes, unknown fields are rejected, numeric observations must be finite, and
+each observation must contain exactly one text or numeric value. Patient and node
+identity cannot be supplied in the body.
+
+Added encounter lookup and patient-history endpoints. Missing patient and encounter
+conditions use typed domain errors and the existing structured error middleware;
+unexpected failures retain server-side logging while returning a sanitized body.
+No standalone observation or immunization write endpoint was introduced.
+
+API tests cover encounter-only and child-bearing visits, multiple records and
+outbox payloads, all validation rules, missing resources, history reads, sanitized
+failures and transaction rollback caused by a forced child insert failure.
+
+Validation: Edge build passed; all 190 tests across 21 suites passed. The next API
+milestone is audited patient import; authentication and RBAC remain required before
+deployment use.
