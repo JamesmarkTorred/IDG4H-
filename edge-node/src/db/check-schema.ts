@@ -12,6 +12,8 @@ const expectedTables = [
   'observations',
   'immunizations',
   'outbox',
+  'import_jobs',
+  'import_row_results',
 ];
 
 console.log('Checking SQLite schema...\n');

@@ -295,3 +295,67 @@ application. The check is included in CI.
 Validation: Edge build passed; all 120 tests across 14 suites passed. The real
 automatic Edge-to-Central synchronization check passed with one attempted and
 acknowledged operation and no failures.
+
+## 2026-09-04 — Import Audit and Staging Foundation
+
+Added generic SQLite audit storage for import jobs and row outcomes. Import jobs
+record the declared source system, file identity and type, lifecycle status,
+row totals, timestamps and fatal errors. Row results retain their original data
+and distinguish imported, identity-candidate and rejected outcomes. Deleting a
+job cascades to its row results, and indexes support status and source queries.
+
+Added typed import job and row-result domain contracts and exported them from the
+Edge domain barrel. No iClinicSys, CHITS or eBHS columns were assumed, and no raw
+row can enter canonical patient storage through this milestone because parser,
+mapper, validation and import-service behavior have not yet been implemented.
+
+Validation: Edge build passed; all 120 tests across 14 suites passed. An isolated
+in-memory schema inspection confirmed both tables, the cascading foreign key and
+all four import audit indexes without modifying the development database.
+
+## 2026-09-04 — Import Accounting and Repository
+
+Split import accounting into imported, candidate and failed counters, with the
+invariant that their sum equals the total processed rows. Renamed the issue-bearing
+completion state to `completed_with_issues`. A compatibility migration rebuilds
+the two audit tables when it finds the earlier successful-row layout, preserves
+jobs and raw row results, derives the split counters from those results, translates
+the old completion status, and restores the cascading foreign key and indexes.
+
+Added the typed import repository for starting jobs, transactionally recording
+row results with the appropriate counter, completing clean or issue-bearing jobs,
+recording fatal failures, and retrieving ordered audit data. Row writes are
+restricted to processing jobs; if the counter update cannot occur, the inserted
+audit row rolls back with it. Raw data is retained through JSON serialization.
+
+Validation: Edge build passed; all 133 tests across 15 suites passed. Repository
+tests cover each counter, accounting totals, raw-data round trips, completion and
+failure states, cascade deletion, closed-job rollback and legacy-schema migration.
+The requested schema check upgraded and verified the configured development
+database with imported, candidate and failed counter columns.
+
+## 2026-09-04 — Generic Audited Patient CSV Import
+
+Added a generic `csv-parse` adapter with BOM, CRLF, quoted-field, empty-header,
+case-insensitive duplicate-header and strict column-count handling. Parser results
+retain physical CSV line numbers even when blank lines are skipped. Added a
+source-mapper interface and a deliberately synthetic patient mapper; no production
+iClinicSys, CHITS or eBHS column layout is claimed.
+
+Added patient import validation for required names, ISO-formatted birth dates and
+real calendar dates. The import service creates its audit job before parsing,
+processes mapped rows independently, retains raw input, sends possible identity
+matches to candidate review, and continues after rejected rows. Rows without a
+candidate create the patient and outbox operation and record the imported audit
+inside one SQLite transaction.
+
+Tests force the imported audit insert to fail and confirm that both the patient
+and outbox operation roll back before the row is recorded as rejected. Fatal CSV
+syntax failures mark the job failed. Clean files complete normally; candidate or
+rejected rows produce `completed_with_issues`; all mixed outcomes preserve the
+counter invariant.
+
+Validation: Edge build passed; all 149 tests across 17 suites passed. The parser
+and service suites cover quoted commas, BOM, CRLF, physical line numbers, malformed
+files and patients, candidate suppression, continued processing, raw audit data,
+transaction rollback and fatal job handling.

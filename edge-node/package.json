@@ -5,6 +5,7 @@
   "main": "dist/index.js",
   "dependencies": {
     "better-sqlite3": "^12.11.1",
+    "csv-parse": "^7.0.2",
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "swagger-jsdoc": "^6.3.0",

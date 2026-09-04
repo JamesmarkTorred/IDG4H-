@@ -16,6 +16,199 @@ export const db = new Database(config.dbPath);
 db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
+interface SchemaColumn {
+  name: string;
+}
+
+function migrateLegacyImportAccounting(): void {
+  const columns = db
+    .prepare('PRAGMA table_info(import_jobs)')
+    .all() as SchemaColumn[];
+
+  if (!columns.some(column => column.name === 'successful_rows')) {
+    return;
+  }
+
+  db.pragma('foreign_keys = OFF');
+
+  try {
+    db.transaction(() => {
+      db.exec(`
+        ALTER TABLE import_row_results
+          RENAME TO import_row_results_legacy;
+
+        ALTER TABLE import_jobs
+          RENAME TO import_jobs_legacy;
+
+        CREATE TABLE import_jobs (
+          id TEXT PRIMARY KEY,
+          source_system TEXT NOT NULL,
+          file_name TEXT NOT NULL,
+          file_type TEXT NOT NULL
+            CHECK (file_type IN ('csv', 'xlsx')),
+          status TEXT NOT NULL
+            CHECK (
+              status IN (
+                'processing',
+                'completed',
+                'completed_with_issues',
+                'failed'
+              )
+            ),
+          total_rows INTEGER NOT NULL DEFAULT 0,
+          imported_rows INTEGER NOT NULL DEFAULT 0,
+          candidate_rows INTEGER NOT NULL DEFAULT 0,
+          failed_rows INTEGER NOT NULL DEFAULT 0,
+          started_at TEXT NOT NULL,
+          completed_at TEXT,
+          error_message TEXT
+        );
+
+        CREATE TABLE import_row_results (
+          id TEXT PRIMARY KEY,
+          import_job_id TEXT NOT NULL,
+          row_number INTEGER NOT NULL,
+          status TEXT NOT NULL
+            CHECK (status IN ('imported', 'candidate', 'rejected')),
+          source_record_id TEXT,
+          entity_type TEXT,
+          local_entity_id TEXT,
+          raw_data TEXT NOT NULL,
+          error_message TEXT,
+          created_at TEXT NOT NULL,
+          FOREIGN KEY (import_job_id)
+            REFERENCES import_jobs(id)
+            ON DELETE CASCADE
+        );
+
+        INSERT INTO import_jobs (
+          id,
+          source_system,
+          file_name,
+          file_type,
+          status,
+          total_rows,
+          imported_rows,
+          candidate_rows,
+          failed_rows,
+          started_at,
+          completed_at,
+          error_message
+        )
+        SELECT
+          job.id,
+          job.source_system,
+          job.file_name,
+          job.file_type,
+          CASE
+            WHEN job.status = 'completed_with_errors'
+              THEN 'completed_with_issues'
+            ELSE job.status
+          END,
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM import_row_results_legacy result
+              WHERE result.import_job_id = job.id
+            )
+              THEN (
+                SELECT COUNT(*)
+                FROM import_row_results_legacy result
+                WHERE result.import_job_id = job.id
+              )
+            ELSE job.total_rows
+          END,
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM import_row_results_legacy result
+              WHERE result.import_job_id = job.id
+            )
+              THEN (
+                SELECT COUNT(*)
+                FROM import_row_results_legacy result
+                WHERE result.import_job_id = job.id
+                  AND result.status = 'imported'
+              )
+            ELSE job.successful_rows
+          END,
+          (
+            SELECT COUNT(*)
+            FROM import_row_results_legacy result
+            WHERE result.import_job_id = job.id
+              AND result.status = 'candidate'
+          ),
+          CASE
+            WHEN EXISTS (
+              SELECT 1
+              FROM import_row_results_legacy result
+              WHERE result.import_job_id = job.id
+            )
+              THEN (
+                SELECT COUNT(*)
+                FROM import_row_results_legacy result
+                WHERE result.import_job_id = job.id
+                  AND result.status = 'rejected'
+              )
+            ELSE job.failed_rows
+          END,
+          job.started_at,
+          job.completed_at,
+          job.error_message
+        FROM import_jobs_legacy job;
+
+        INSERT INTO import_row_results (
+          id,
+          import_job_id,
+          row_number,
+          status,
+          source_record_id,
+          entity_type,
+          local_entity_id,
+          raw_data,
+          error_message,
+          created_at
+        )
+        SELECT
+          id,
+          import_job_id,
+          row_number,
+          status,
+          source_record_id,
+          entity_type,
+          local_entity_id,
+          raw_data,
+          error_message,
+          created_at
+        FROM import_row_results_legacy;
+
+        DROP TABLE import_row_results_legacy;
+        DROP TABLE import_jobs_legacy;
+
+        CREATE INDEX idx_import_jobs_status
+          ON import_jobs(status);
+
+        CREATE INDEX idx_import_jobs_source
+          ON import_jobs(source_system);
+
+        CREATE INDEX idx_import_rows_job
+          ON import_row_results(import_job_id);
+
+        CREATE INDEX idx_import_rows_status
+          ON import_row_results(status);
+      `);
+    })();
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+
+  const foreignKeyErrors = db.pragma('foreign_key_check') as unknown[];
+
+  if (foreignKeyErrors.length > 0) {
+    throw new Error('Import accounting migration produced invalid foreign keys.');
+  }
+}
+
 export function initSchema(): void {
   db.exec(`
     CREATE TABLE IF NOT EXISTS patients (
@@ -229,6 +422,65 @@ export function initSchema(): void {
       acknowledged_at TEXT
     );
 
+    CREATE TABLE IF NOT EXISTS import_jobs (
+      id TEXT PRIMARY KEY,
+
+      source_system TEXT NOT NULL,
+      file_name TEXT NOT NULL,
+      file_type TEXT NOT NULL
+        CHECK (file_type IN ('csv', 'xlsx')),
+
+      status TEXT NOT NULL
+        CHECK (
+          status IN (
+            'processing',
+            'completed',
+            'completed_with_issues',
+            'failed'
+          )
+        ),
+
+      total_rows INTEGER NOT NULL DEFAULT 0,
+      imported_rows INTEGER NOT NULL DEFAULT 0,
+      candidate_rows INTEGER NOT NULL DEFAULT 0,
+      failed_rows INTEGER NOT NULL DEFAULT 0,
+
+      started_at TEXT NOT NULL,
+      completed_at TEXT,
+
+      error_message TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS import_row_results (
+      id TEXT PRIMARY KEY,
+
+      import_job_id TEXT NOT NULL,
+      row_number INTEGER NOT NULL,
+
+      status TEXT NOT NULL
+        CHECK (
+          status IN (
+            'imported',
+            'candidate',
+            'rejected'
+          )
+        ),
+
+      source_record_id TEXT,
+      entity_type TEXT,
+
+      local_entity_id TEXT,
+
+      raw_data TEXT NOT NULL,
+      error_message TEXT,
+
+      created_at TEXT NOT NULL,
+
+      FOREIGN KEY (import_job_id)
+        REFERENCES import_jobs(id)
+        ON DELETE CASCADE
+    );
+
     CREATE INDEX IF NOT EXISTS idx_outbox_status
       ON outbox(status);
 
@@ -240,6 +492,18 @@ export function initSchema(): void {
 
     CREATE INDEX IF NOT EXISTS idx_outbox_created_at
       ON outbox(created_at);
+
+    CREATE INDEX IF NOT EXISTS idx_import_jobs_status
+      ON import_jobs(status);
+
+    CREATE INDEX IF NOT EXISTS idx_import_jobs_source
+      ON import_jobs(source_system);
+
+    CREATE INDEX IF NOT EXISTS idx_import_rows_job
+      ON import_row_results(import_job_id);
+
+    CREATE INDEX IF NOT EXISTS idx_import_rows_status
+      ON import_row_results(status);
 
     -- Patient indexes
     CREATE INDEX IF NOT EXISTS idx_patients_phic_no
@@ -310,6 +574,8 @@ export function initSchema(): void {
       WHERE source_system IS NOT NULL
         AND source_record_id IS NOT NULL;
   `);
+
+  migrateLegacyImportAccounting();
 }
 
 initSchema();
