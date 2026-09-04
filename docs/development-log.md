@@ -408,3 +408,29 @@ Validation: Edge and Central builds passed; all 157 Edge tests across 19 suites
 passed. Both live synthetic CSV and XLSX import-to-automatic-sync checks passed
 with two acknowledged operations and zero duplicate patients. Additional import
 formats are deferred; the next application milestone is the Edge local REST API.
+
+## 2026-09-04 — Edge Patient REST API and Runtime Validation
+
+Added the first local application boundary with patient create, exact demographic
+search, get-by-ID and optimistic update endpoints. Routes contain no SQL: reads
+delegate to the patient repository, registration delegates to identity candidate
+detection and transactional creation, and updates delegate to the existing
+patient/outbox write service.
+
+Added strict Zod schemas for path, query, create and update inputs. Required names,
+real `YYYY-MM-DD` dates, the sex enum, positive integer expected versions and at
+least one update field are enforced at runtime. Unknown fields are rejected, so
+callers cannot supply node identity or persistence metadata.
+
+Added structured API errors for validation, malformed JSON, missing patients,
+identity candidates and version conflicts. The shared terminal middleware returns
+a sanitized internal-error response for unexpected failures; health-check storage
+errors now use the same policy. Patient repository update failures use typed domain
+errors while retaining their established messages for non-HTTP callers.
+
+Tests cover successful writes and reads, outbox payloads, invalid fields, dates and
+sex values, strong identity suppression, searches, missing patients, v1-to-v2
+updates, stale-update rollback, malformed JSON and sanitized unexpected failures.
+
+Validation: Edge build passed; all 173 tests across 20 suites passed. Authentication
+and RBAC remain required before treating the local REST API as deployment-ready.

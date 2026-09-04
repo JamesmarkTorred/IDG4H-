@@ -3,9 +3,7 @@ import { db } from '../db/connection';
 
 const router = Router();
 
-type HealthResponse =
-  | { status: 'ok'; db: 'connected' }
-  | { status: 'error'; message: string };
+type HealthResponse = { status: 'ok'; db: 'connected' };
 
 /**
  * @openapi
@@ -17,7 +15,7 @@ type HealthResponse =
  *       200:
  *         description: Service is healthy
  */
-router.get<Record<string, never>, HealthResponse>('/', (_req, res) => {
+router.get<Record<string, never>, HealthResponse>('/', (_req, res, next) => {
   try {
     db.prepare('SELECT 1').get();
 
@@ -25,11 +23,8 @@ router.get<Record<string, never>, HealthResponse>('/', (_req, res) => {
       status: 'ok',
       db: 'connected',
     });
-  } catch (err) {
-    res.status(500).json({
-      status: 'error',
-      message: err instanceof Error ? err.message : 'Database health check failed',
-    });
+  } catch (error) {
+    next(error);
   }
 });
 

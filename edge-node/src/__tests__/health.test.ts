@@ -19,7 +19,13 @@ describe('GET /health', () => {
     try {
       const res = await request(app).get('/health');
       expect(res.statusCode).toBe(500);
-      expect(res.body).toEqual({ status: 'error', message: 'SQLite unavailable' });
+      expect(res.body).toEqual({
+        error: {
+          code: 'INTERNAL_ERROR',
+          message: 'An unexpected server error occurred.',
+        },
+      });
+      expect(JSON.stringify(res.body)).not.toContain('SQLite unavailable');
     } finally {
       prepare.mockRestore();
     }

@@ -36,7 +36,10 @@ idg4h/
 │   │   ├── docs/
 │   │   │   └── swagger.ts      # OpenAPI spec generation
 │   │   ├── routes/
-│   │   │   └── health.ts       # Health-check endpoint
+│   │   │   ├── health.ts       # Health-check endpoint
+│   │   │   └── patients.ts     # Validated patient REST boundary
+│   │   ├── validation/          # Strict runtime request schemas
+│   │   ├── middleware/          # Structured, sanitized API errors
 │   │   ├── import/              # Generic CSV/XLSX parsing and audited patient import
 │   │   ├── sync/
 │   │   │   └── syncWorker.ts   # Automatic non-overlapping synchronization loop
@@ -177,8 +180,26 @@ Patient changes use `updatePatientWithOutbox({ id, expectedVersion, ...changes }
 The repository updates only when the stored version matches `expectedVersion`,
 increments the record version, preserves omitted fields, and queues the complete
 updated record in the same SQLite transaction. A stale caller receives a version
-conflict and creates no outbox entry. Central patient update application is the
-next step; the current endpoint still rejects update operations.
+conflict and creates no outbox entry. Central applies only the next consecutive
+patient version and rejects stale or skipped versions without overwriting the
+canonical record.
+
+The first local REST API milestone exposes these patient operations:
+
+```text
+GET   /api/patients/:id
+GET   /api/patients/search?lastName=...&firstName=...&birthDate=YYYY-MM-DD
+POST  /api/patients
+PATCH /api/patients/:id
+```
+
+Zod validates every path, query and request body at runtime. Unknown body fields
+are rejected. Registration delegates to identity candidate detection and the
+transactional patient/outbox write service; updates require a positive integer
+`expectedVersion`. Errors use a stable `{ "error": { "code", "message" } }`
+shape, with validation details where useful, and unexpected storage failures do
+not expose internal messages. These endpoints do not yet have authentication or
+RBAC and are intended for local development until that milestone is complete.
 
 **`central-server/.env`**
 ```env

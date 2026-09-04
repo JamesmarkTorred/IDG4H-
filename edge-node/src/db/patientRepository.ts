@@ -2,6 +2,10 @@ import { randomUUID } from 'crypto';
 import config from '../config';
 import { db } from './connection';
 import type { Patient, PatientInput, PatientUpdateInput } from '../domain';
+import {
+  PatientNotFoundError,
+  PatientVersionConflictError,
+} from '../domain/patientErrors';
 
 interface PatientRow {
   id: string;
@@ -348,17 +352,17 @@ export function updatePatient(
     findPatientById(input.id);
 
   if (!existing) {
-    throw new Error(
-      `Patient ${input.id} does not exist.`
-    );
+    throw new PatientNotFoundError(input.id);
   }
 
   if (
     existing.version !==
     input.expectedVersion
   ) {
-    throw new Error(
-      `Patient version conflict. Expected ${input.expectedVersion}, current ${existing.version}.`
+    throw new PatientVersionConflictError(
+      input.id,
+      input.expectedVersion,
+      existing.version
     );
   }
 
@@ -613,8 +617,16 @@ export function updatePatient(
     });
 
   if (result.changes !== 1) {
-    throw new Error(
-      `Patient ${input.id} update failed because the version changed concurrently.`
+    const current = findPatientById(input.id);
+
+    if (!current) {
+      throw new PatientNotFoundError(input.id);
+    }
+
+    throw new PatientVersionConflictError(
+      input.id,
+      input.expectedVersion,
+      current.version
     );
   }
 
