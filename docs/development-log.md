@@ -462,3 +462,31 @@ failures and transaction rollback caused by a forced child insert failure.
 Validation: Edge build passed; all 190 tests across 21 suites passed. The next API
 milestone is audited patient import; authentication and RBAC remain required before
 deployment use.
+
+## 2026-09-04 — Audited Patient Import REST API
+
+Added a multipart patient import endpoint over the existing CSV/XLSX service and
+read endpoints for import jobs and ordered row results. The route selects only the
+registered synthetic mapper and delegates all parsing, mapping, validation,
+identity detection, patient/outbox creation and audit accounting to the existing
+application layer; it contains no SQL or parser implementation.
+
+Uploads use Multer memory storage with an explicit 5 MiB limit, one file, bounded
+multipart fields and no temporary-file persistence. Only `.csv` and `.xlsx`
+extensions are accepted. UTF-8 CSV decoding is strict, XLSX files require a ZIP
+signature before parsing, and MIME type is not trusted. Missing, empty, multiple,
+unsupported and oversized files return structured errors.
+
+The only exposed mapper is `synthetic-patient`, and the declared source name must
+explicitly identify itself as synthetic. This prevents the development endpoint
+from presenting the unverified iClinicSys schema as supported. Parser failures
+still create durable failed audit jobs, while public error responses omit parser
+and storage details.
+
+Tests cover clean and mixed CSV imports, XLSX imports, canonical and outbox writes,
+candidate suppression, invalid files, every upload constraint, mapper/source
+allowlisting, job and ordered-row reads, and sanitized POST service failures.
+
+Validation: Edge build passed; all 208 tests across 22 suites passed, and
+`git diff --check` passed. Authentication and RBAC are now the immediate security
+gate before adding more public routes or beginning PWA integration.

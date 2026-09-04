@@ -1,4 +1,5 @@
 import type { ErrorRequestHandler } from 'express';
+import multer from 'multer';
 import type { ZodError, ZodType } from 'zod';
 
 import { EncounterNotFoundError } from '../domain/encounterErrors';
@@ -70,6 +71,29 @@ export const errorHandler: ErrorRequestHandler = (
   res,
   _next
 ) => {
+  if (error instanceof multer.MulterError) {
+    const tooLarge = error.code === 'LIMIT_FILE_SIZE';
+    const invalidFileCount =
+      error.code === 'LIMIT_FILE_COUNT' ||
+      error.code === 'LIMIT_UNEXPECTED_FILE';
+
+    res.status(tooLarge ? 413 : 400).json({
+      error: {
+        code: tooLarge
+          ? 'FILE_TOO_LARGE'
+          : invalidFileCount
+            ? 'INVALID_FILE_COUNT'
+            : 'INVALID_MULTIPART_REQUEST',
+        message: tooLarge
+          ? 'The uploaded file exceeds the configured size limit.'
+          : invalidFileCount
+            ? 'Exactly one file field named file is required.'
+            : 'The multipart upload is invalid.',
+      },
+    } satisfies ApiErrorBody);
+    return;
+  }
+
   if (isMalformedJson(error)) {
     res.status(400).json({
       error: {

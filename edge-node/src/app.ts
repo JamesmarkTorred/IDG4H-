@@ -4,6 +4,7 @@ import swaggerSpec from './docs/swagger';
 import { errorHandler } from './middleware/errorHandler';
 import encounterRouter from './routes/encounters';
 import healthRouter from './routes/health';
+import importRouter from './routes/imports';
 import patientRouter from './routes/patients';
 
 const app = express();
@@ -17,6 +18,7 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use('/health', healthRouter);
 app.use('/api/patients', patientRouter);
 app.use('/api', encounterRouter);
+app.use('/api', importRouter);
 
 app.use(errorHandler);
 

@@ -38,7 +38,8 @@ idg4h/
 │   │   ├── routes/
 │   │   │   ├── health.ts       # Health-check endpoint
 │   │   │   ├── patients.ts     # Validated patient REST boundary
-│   │   │   └── encounters.ts   # Atomic clinical encounter REST boundary
+│   │   │   ├── encounters.ts   # Atomic clinical encounter REST boundary
+│   │   │   └── imports.ts      # Bounded, audited multipart import boundary
 │   │   ├── validation/          # Strict runtime request schemas
 │   │   ├── middleware/          # Structured, sanitized API errors
 │   │   ├── import/              # Generic CSV/XLSX parsing and audited patient import
@@ -216,6 +217,22 @@ stamp `nodeId`; neither field is accepted from the body. Every domain record and
 its outbox operation commit together. Observation input requires exactly one of
 `valueText` or finite `valueNumeric`. Separate observation and immunization write
 endpoints are deferred so callers cannot bypass the visit transaction.
+
+Audited patient imports are available through:
+
+```text
+POST /api/imports/patients
+GET  /api/imports/:id
+GET  /api/imports/:id/rows
+```
+
+The POST endpoint accepts one in-memory multipart `.csv` or `.xlsx` file up to
+5 MiB, plus `mapper=synthetic-patient` and an explicitly synthetic
+`sourceSystem`. It validates the extension and file content without trusting the
+MIME type, then calls the existing CSV/XLSX import service. Invalid parser input
+retains a failed audit job and returns its ID in a controlled response. Uploaded
+files are not written to disk. Official iClinicSys mapping remains unavailable
+until a real export schema is verified.
 
 **`central-server/.env`**
 ```env
