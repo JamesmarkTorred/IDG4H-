@@ -1,0 +1,3 @@
+source_record_id,last_name,first_name,birth_date,sex,barangay,municipality_city
+E2E-IMPORT-001,ImportTest,Alpha,1990-01-01,male,Synthetic Barangay,Butuan City
+E2E-IMPORT-002,ImportTest,Beta,1995-05-15,female,Synthetic Barangay,Butuan City

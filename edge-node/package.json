@@ -30,6 +30,7 @@
     "dev": "ts-node src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
+    "import:synthetic": "ts-node src/import/runSyntheticPatientImport.ts",
     "sync": "ts-node src/sync/runSync.ts",
     "test": "jest"
   }

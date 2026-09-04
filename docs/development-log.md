@@ -359,3 +359,27 @@ Validation: Edge build passed; all 149 tests across 17 suites passed. The parser
 and service suites cover quoted commas, BOM, CRLF, physical line numbers, malformed
 files and patients, candidate suppression, continued processing, raw audit data,
 transaction rollback and fatal job handling.
+
+## 2026-09-04 — End-to-End Audited CSV Import and Automatic O2O Synchronization
+
+Added a two-row synthetic patient CSV fixture and the `import:synthetic` command.
+The command reads the fixture, applies the synthetic mapper, creates a durable
+import job and prints its ordered row results. The input is explicitly synthetic
+and is not claimed to reproduce an official iClinicSys export or column layout.
+
+Added a process-level integration check using a temporary Edge SQLite database,
+a temporary Central PostgreSQL schema, and live Edge and Central HTTP servers.
+It runs the actual import command while the Edge worker is active, verifies two
+canonical Edge patients, two imported audit rows and two create outbox operations,
+then waits for automatic synchronization without invoking the manual sync command.
+Central receives both patients with the expected source provenance and node ID,
+both ledger operations become applied, and both Edge operations become acknowledged.
+
+The check then imports the identical CSV again. Source identity detection records
+both rows as candidates, the second job completes with issues, and patient, outbox,
+Central canonical and Central ledger counts remain unchanged. The integration
+check is included in CI.
+
+Validation: Edge and Central builds passed; all 149 Edge tests across 17 suites
+passed; the live synthetic import-to-automatic-sync integration check passed with
+two acknowledged operations and zero duplicate patients.

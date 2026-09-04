@@ -37,6 +37,7 @@ idg4h/
 │   │   │   └── swagger.ts      # OpenAPI spec generation
 │   │   ├── routes/
 │   │   │   └── health.ts       # Health-check endpoint
+│   │   ├── import/              # Generic CSV parsing, mapping, validation and audited patient import
 │   │   ├── sync/
 │   │   │   └── syncWorker.ts   # Automatic non-overlapping synchronization loop
 │   │   ├── __tests__/          # Jest test suite
@@ -45,6 +46,7 @@ idg4h/
 │   │   └── index.ts            # Entry point / server listener
 │   ├── .env                    # Local environment variables (gitignored)
 │   ├── .env.example            # Safe deployment configuration example
+│   ├── test-fixtures/           # Explicitly synthetic import fixtures
 │   ├── tsconfig.json           # Strict TypeScript compiler configuration
 │   ├── jest.config.cjs         # TypeScript test configuration
 │   └── package.json
@@ -70,6 +72,7 @@ idg4h/
 │   ├── jest.config.cjs
 │   ├── scripts/check-edge-sync.cjs # Canonical create/update sync integration check
 │   ├── scripts/check-edge-auto-sync.cjs # Automatic worker integration check
+│   ├── scripts/check-edge-import-auto-sync.cjs # Audited CSV-to-Central integration check
 │   └── package.json
 │
 ├── sync-engine/                # CRDT-based, queue-based synchronization layer
@@ -364,6 +367,18 @@ This starts loopback Edge and Central servers with disposable SQLite and
 PostgreSQL storage, creates a pending patient before Edge starts, and waits for
 the worker to persist `acknowledged` locally and `applied` centrally.
 
+To verify the complete audited CSV import and automatic synchronization chain:
+
+```bash
+node central-server/scripts/check-edge-import-auto-sync.cjs
+```
+
+The check runs the real `import:synthetic` command against a running Edge server,
+verifies two imported audit rows and automatic Central application, then imports
+the same fixture again. The replay must produce two candidates and no additional
+patients, outbox operations or Central ledger entries. Its fixture and mapper are
+synthetic and do not claim to match an official iClinicSys export.
+
 Tests also run automatically on every push and pull request via GitHub Actions (see `.github/workflows/test.yml`).
 
 ## Project Status
@@ -380,7 +395,8 @@ This project follows a structured development lifecycle: **Technical Audit → A
 | Sync Engine (CRDT mechanism proven) | ✅ Scaffold complete |
 | Automated testing (all workspaces) | ✅ Complete |
 | Real FHIR data model | ⏸ Pending Technical Audit |
-| Data ingestion (CSV/Excel parsing) | ⏸ Pending Technical Audit |
+| Generic CSV ingestion pipeline | ✅ Complete with synthetic mapper |
+| Verified legacy mappings and Excel ingestion | ⏸ Pending source samples/audit |
 | Authentication & authorization | ⏸ Design pending |
 | QR-based patient lookup | ⏸ Design documented, pending implementation |
 
