@@ -488,15 +488,16 @@ To produce a synthetic synchronization evaluation artifact with deterministic
 network impairment:
 
 ```bash
-npm run evaluate:sync -- --profile packet-loss --operations 100 --require-complete
+npm run evaluate:sync -- --profile ack-loss --operations 100 --require-complete
 ```
 
 Available profiles cover stable transport, high latency, limited bandwidth,
 dropped acknowledgements, intermittent failure, temporary Central unavailability,
-and interruption after part of the queue drains. The runner records SSR, DCI,
-retry recovery, duplicates, loss, latency, queue-drain time, throughput, CPU,
-memory, and Edge storage growth. Generated JSON is ignored by Git and explicitly
-labels itself as synthetic development evidence. See
+and interruption after part of the queue drains. The runner records logical
+operation SSR separately from transport-attempt success, canonical patient
+synchronization DCI, retry recovery, duplicates, loss, latency, queue-drain time,
+throughput, CPU, memory, and Edge storage growth. Generated JSON is ignored by Git
+and explicitly labels itself as synthetic development evidence. See
 `docs/evaluation/sync-evaluation.md` for definitions and interpretation rules.
 
 Tests also run automatically on every push and pull request via GitHub Actions (see `.github/workflows/test.yml`).

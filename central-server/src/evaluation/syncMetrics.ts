@@ -38,15 +38,19 @@ export interface SyncMetricInput {
 
 export interface SyncMetrics {
   synchronization: {
-    expectedOperations: number;
-    acknowledgedOperations: number;
+    operationsScheduled: number;
+    operationsAcknowledged: number;
     retainedUnacknowledgedOperations: number;
     lostOperations: number;
     transportAttempts: number;
-    retryRecoveredOperations: number;
+    successfulTransportAttempts: number;
+    transportAttemptSuccessPercent: number;
+    retryCount: number;
+    recoveredOperations: number;
     ssrPercent: number;
   };
-  consistency: {
+  canonicalPatientSynchronization: {
+    scope: 'full-field Edge canonical patient to Central canonical patient';
     expectedDataElements: number;
     matchingDataElements: number;
     mismatchedDataElements: number;
@@ -113,7 +117,8 @@ export function calculateSyncMetrics(input: SyncMetricInput): SyncMetrics {
   let retainedUnacknowledgedOperations = 0;
   let lostOperations = 0;
   let transportAttempts = 0;
-  let retryRecoveredOperations = 0;
+  let retryCount = 0;
+  let recoveredOperations = 0;
   const acknowledgementLatencies: number[] = [];
 
   for (const operationId of expectedOperationIds) {
@@ -123,12 +128,13 @@ export function calculateSyncMetrics(input: SyncMetricInput): SyncMetrics {
       observation.centralStatus === 'applied';
 
     transportAttempts += observation?.attemptCount ?? 0;
+    retryCount += Math.max(0, (observation?.attemptCount ?? 0) - 1);
 
     if (acknowledged) {
       acknowledgedOperations += 1;
 
       if ((observation.attemptCount ?? 0) > 1) {
-        retryRecoveredOperations += 1;
+        recoveredOperations += 1;
       }
 
       if (observation.createdAt && observation.acknowledgedAt) {
@@ -205,18 +211,25 @@ export function calculateSyncMetrics(input: SyncMetricInput): SyncMetrics {
 
   return {
     synchronization: {
-      expectedOperations: expectedOperationIds.size,
-      acknowledgedOperations,
+      operationsScheduled: expectedOperationIds.size,
+      operationsAcknowledged: acknowledgedOperations,
       retainedUnacknowledgedOperations,
       lostOperations,
       transportAttempts,
-      retryRecoveredOperations,
+      successfulTransportAttempts: acknowledgedOperations,
+      transportAttemptSuccessPercent: percentage(
+        acknowledgedOperations,
+        transportAttempts
+      ),
+      retryCount,
+      recoveredOperations,
       ssrPercent: percentage(
         acknowledgedOperations,
         expectedOperationIds.size
       ),
     },
-    consistency: {
+    canonicalPatientSynchronization: {
+      scope: 'full-field Edge canonical patient to Central canonical patient',
       expectedDataElements,
       matchingDataElements,
       mismatchedDataElements,

@@ -10,7 +10,7 @@ describe('deterministic network evaluation profiles', () => {
       'stable',
       'high-latency',
       'limited-bandwidth',
-      'packet-loss',
+      'ack-loss',
       'intermittent',
       'central-unavailable',
       'mid-sync-interruption',
@@ -31,8 +31,8 @@ describe('deterministic network evaluation profiles', () => {
     }
   });
 
-  test('packet-loss drops only selected first acknowledgements', () => {
-    const profile = getNetworkProfile('packet-loss');
+  test('ack-loss drops only selected first acknowledgements', () => {
+    const profile = getNetworkProfile('ack-loss');
 
     expect(decideFault(profile, {
       operationOrdinal: 5,

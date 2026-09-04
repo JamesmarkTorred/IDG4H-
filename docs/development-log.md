@@ -556,3 +556,18 @@ All seven profiles completed isolated 10-operation development smoke runs with
 the completion gate enabled. These smoke runs verify the harness and are not final
 research measurements; formal sample sizes, repetitions, thresholds, and field
 network parameters remain to be approved.
+
+## 2026-09-05 — Synchronization Evaluation Harness Stabilization
+
+Renamed the dropped-response scenario to `ack-loss` because the proxy allows
+Central to commit and then withholds the HTTP acknowledgement; it does not model
+network packet loss. Froze SSR as unique operations eventually acknowledged over
+unique operations scheduled, and separated transport-attempt success, retry count,
+and recovered operations from that logical completion rate.
+
+Scoped the current DCI to full-field canonical patient consistency from Edge to
+Central. Source-system mapping fidelity remains outside this development metric
+until verified source fixtures exist. Evaluation artifacts now identify themselves
+as synthetic, non-final development evidence and record the profile, timestamps,
+operation count, software commit, and configured evaluation node.
+The artifact also records whether tracked files differed from that commit.

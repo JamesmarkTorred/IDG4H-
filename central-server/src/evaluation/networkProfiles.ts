@@ -2,7 +2,7 @@ export const networkProfileNames = [
   'stable',
   'high-latency',
   'limited-bandwidth',
-  'packet-loss',
+  'ack-loss',
   'intermittent',
   'central-unavailable',
   'mid-sync-interruption',
@@ -38,8 +38,8 @@ const profiles: Record<NetworkProfileName, NetworkProfile> = {
     fixedLatencyMs: 25,
     bandwidthBytesPerSecond: 16 * 1024,
   },
-  'packet-loss': {
-    name: 'packet-loss',
+  'ack-loss': {
+    name: 'ack-loss',
     description: 'Drops every fifth first acknowledgement after Central commits.',
     fixedLatencyMs: 25,
     loseAcknowledgementEvery: 5,
@@ -120,4 +120,3 @@ export function decideFault(
     loseAcknowledgement,
   };
 }
-

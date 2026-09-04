@@ -1,5 +1,6 @@
 // Synthetic development evaluation. Build Edge and Central before running.
 const assert = require('node:assert/strict');
+const { execFileSync } = require('node:child_process');
 const { randomUUID } = require('node:crypto');
 const { once } = require('node:events');
 const {
@@ -24,6 +25,34 @@ const {
 const {
   startFaultProxy,
 } = require('../dist/evaluation/faultProxy');
+
+function readSoftwareCommit() {
+  try {
+    return execFileSync('git', ['rev-parse', 'HEAD'], {
+      cwd: resolve(__dirname, '../..'),
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+  } catch {
+    return 'unknown';
+  }
+}
+
+function isSoftwareDirty() {
+  try {
+    return execFileSync(
+      'git',
+      ['status', '--porcelain', '--untracked-files=no'],
+      {
+        cwd: resolve(__dirname, '../..'),
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      }
+    ).trim().length > 0;
+  } catch {
+    return true;
+  }
+}
 
 function readOption(name, fallback) {
   const prefix = `--${name}=`;
@@ -116,6 +145,7 @@ async function main() {
   const schema = `idg4h_eval_${randomUUID().replace(/-/g, '')}`;
   const edgeDirectory = mkdtempSync(join(tmpdir(), 'idg4h-evaluation-'));
   const edgeDatabasePath = join(edgeDirectory, 'edge.sqlite');
+  const nodeId = `edge-evaluation-${options.profile.name}`;
   let schemaCreated = false;
   let centralServer;
   let proxy;
@@ -124,7 +154,7 @@ async function main() {
   let memoryTimer;
 
   process.env.PGOPTIONS = `-c search_path=${schema}`;
-  process.env.NODE_ID = `edge-evaluation-${options.profile.name}`;
+  process.env.NODE_ID = nodeId;
   process.env.DB_PATH = edgeDatabasePath;
 
   try {
@@ -382,17 +412,28 @@ async function main() {
       edgeStorageGrowthBytes: Math.max(0, storageAfter - storageBefore),
     });
     const artifact = {
-      schemaVersion: 1,
+      schemaVersion: 2,
       kind: 'synthetic-development-sync-evaluation',
+      evidenceClass: 'development-smoke',
+      finalResearchResult: false,
+      syntheticData: true,
       generatedAt: new Date().toISOString(),
+      profileName: options.profile.name,
+      startedAt: startedAt.toISOString(),
+      completedAt: completedAt.toISOString(),
+      operationCount: options.operationCount,
+      softwareCommit: readSoftwareCommit(),
+      softwareDirty: isSoftwareDirty(),
+      nodeId,
       scope: [
         'Synthetic patient-create operations on one development host.',
         'Deterministic application-level fault injection through a loopback proxy.',
         'This is not a final manuscript result or a measurement of a deployed barangay network.',
       ],
       definitions: {
-        ssr: 'Acknowledged Edge operations with applied Central ledger rows divided by expected queued operations.',
-        dci: 'Matching expected scalar canonical elements divided by total expected scalar canonical elements.',
+        ssr: 'Unique operations eventually acknowledged by Edge with applied Central ledger rows divided by unique operations scheduled for synchronization.',
+        transportAttemptSuccessRate: 'Successful acknowledged transport responses divided by all transport attempts. Retries affect this metric but do not reduce operation-level SSR after eventual acknowledgement.',
+        canonicalPatientSynchronizationDci: 'Matching scalar fields between full Edge canonical patient snapshots and Central canonical patient snapshots divided by all evaluated patient fields. This does not measure source-system mapping fidelity.',
         lostOperation: 'Expected operation absent from both the Edge outbox and Central operation ledger.',
         duplicateEntity: 'Additional Central canonical row with the same entity type and identifier.',
       },
@@ -414,9 +455,9 @@ async function main() {
 
     if (options.requireComplete) {
       assert.equal(metrics.synchronization.ssrPercent, 100);
-      assert.equal(metrics.consistency.dciPercent, 100);
+      assert.equal(metrics.canonicalPatientSynchronization.dciPercent, 100);
       assert.equal(metrics.synchronization.lostOperations, 0);
-      assert.equal(metrics.consistency.duplicateEntities, 0);
+      assert.equal(metrics.canonicalPatientSynchronization.duplicateEntities, 0);
       assert.equal(metrics.synchronization.retainedUnacknowledgedOperations, 0);
     }
   } finally {

@@ -137,7 +137,7 @@ presented as verified legacy-system compatibility.
 | Final FHIR transformation and profiles | Pending Technical Audit |
 | Final health-worker role matrix | Needs field validation |
 | Edge-to-Central authentication and TLS | Open |
-| PWA/dashboard | Deferred by ADR 0001 pending approval |
+| PWA/local application integration | Not started; tracked as a separate milestone |
 | QR-based patient lookup | Pending design and approval |
 | Final research evaluation results | Not yet measured |
 

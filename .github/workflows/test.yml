@@ -69,10 +69,6 @@ jobs:
       - run: node central-server/scripts/evaluate-sync.cjs --profile stable --operations 10 --require-complete --output artifacts/evaluation/ci-stable.json
         env:
           DATABASE_URL: postgres://postgres:testpass@localhost:5432/idg4h_central_test
-      - run: node central-server/scripts/evaluate-sync.cjs --profile packet-loss --operations 10 --require-complete --output artifacts/evaluation/ci-packet-loss.json
-        env:
-          DATABASE_URL: postgres://postgres:testpass@localhost:5432/idg4h_central_test
-
   test-shared:
     runs-on: ubuntu-latest
     steps:

@@ -61,15 +61,19 @@ describe('synchronization evaluation metrics', () => {
     const metrics = calculateSyncMetrics(completeInput());
 
     expect(metrics.synchronization).toEqual({
-      expectedOperations: 2,
-      acknowledgedOperations: 2,
+      operationsScheduled: 2,
+      operationsAcknowledged: 2,
       retainedUnacknowledgedOperations: 0,
       lostOperations: 0,
       transportAttempts: 3,
-      retryRecoveredOperations: 1,
+      successfulTransportAttempts: 2,
+      transportAttemptSuccessPercent: 66.6667,
+      retryCount: 1,
+      recoveredOperations: 1,
       ssrPercent: 100,
     });
-    expect(metrics.consistency).toEqual({
+    expect(metrics.canonicalPatientSynchronization).toEqual({
+      scope: 'full-field Edge canonical patient to Central canonical patient',
       expectedDataElements: 4,
       matchingDataElements: 4,
       mismatchedDataElements: 0,
@@ -126,13 +130,19 @@ describe('synchronization evaluation metrics', () => {
     const metrics = calculateSyncMetrics(input);
 
     expect(metrics.synchronization).toMatchObject({
-      expectedOperations: 3,
-      acknowledgedOperations: 1,
+      operationsScheduled: 3,
+      operationsAcknowledged: 1,
       retainedUnacknowledgedOperations: 1,
       lostOperations: 1,
+      transportAttempts: 2,
+      successfulTransportAttempts: 1,
+      transportAttemptSuccessPercent: 50,
+      retryCount: 0,
+      recoveredOperations: 0,
       ssrPercent: 33.3333,
     });
-    expect(metrics.consistency).toEqual({
+    expect(metrics.canonicalPatientSynchronization).toEqual({
+      scope: 'full-field Edge canonical patient to Central canonical patient',
       expectedDataElements: 4,
       matchingDataElements: 1,
       mismatchedDataElements: 3,
@@ -155,8 +165,19 @@ describe('synchronization evaluation metrics', () => {
     });
 
     expect(metrics.synchronization.ssrPercent).toBe(100);
-    expect(metrics.consistency.dciPercent).toBe(100);
+    expect(metrics.canonicalPatientSynchronization.dciPercent).toBe(100);
     expect(metrics.performance.queueDrainMs).toBe(0);
     expect(metrics.performance.acknowledgementLatency).toBeNull();
+  });
+
+  test('counts duplicate scheduled operation IDs once in SSR', () => {
+    const input = completeInput();
+    input.expectedOperations.push('op-1', 'op-2');
+
+    const metrics = calculateSyncMetrics(input);
+
+    expect(metrics.synchronization.operationsScheduled).toBe(2);
+    expect(metrics.synchronization.operationsAcknowledged).toBe(2);
+    expect(metrics.synchronization.ssrPercent).toBe(100);
   });
 });
