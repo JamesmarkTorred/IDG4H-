@@ -1,20 +1,21 @@
 # IDG4H — Integrated Data Gateway for Health
 
-> Offline-first data gateway that syncs edge-collected health records (SQLite) with a central FHIR-compliant registry (PostgreSQL) via CRDT-based sync — built for low-connectivity clinic environments.
+> Offline-first data gateway that synchronizes Edge health operations from SQLite to a FHIR-aligned Central PostgreSQL registry under intermittent connectivity.
 
 [![Test Suite](https://github.com/zabdeilmercado/idg4h/actions/workflows/test.yml/badge.svg)](https://github.com/zabdeilmercado/idg4h/actions/workflows/test.yml)
 
 ## About
 
-IDG4H is a capstone project aimed at integrating legacy Philippine barangay/clinic-level health information systems (iClinicSys, CHITS, eBHS) into a unified, FHIR-compliant central registry. The system is designed around an **offline-first, edge + central architecture**, recognizing that health workers frequently operate in low- or no-connectivity environments.
+IDG4H is a capstone prototype investigating how fragmented Philippine barangay/clinic-level health information systems can interoperate with a unified, FHIR-aligned central registry. iClinicSys, CHITS, and eBHS are study contexts whose deployed schemas and exchange mechanisms still require Technical Audit verification. The system uses an **offline-first Edge + Central architecture** for low- or no-connectivity environments.
 
-Rather than relying on direct APIs into these legacy systems (which mostly don't exist), IDG4H ingests **CSV/Excel exports** from source systems and reconciles data through a CRDT-based synchronization layer, allowing edge devices to record and update health data offline and merge changes with the central registry once connectivity is available.
+The implemented generic pipeline ingests synthetic **CSV/Excel exports**, validates and maps them into a provisional canonical model, and synchronizes durable operations once connectivity is available. Verified source-specific adapters remain pending real export evidence. The production prototype uses an idempotent operation ledger and optimistic patient version conflicts; Automerge remains a separate proof of concept.
 
 ## Core Features
 
 - **Offline-first Edge Node** — a local Node.js + SQLite service that Barangay Health Workers (BHWs) can use to record and access health data without requiring live internet connectivity.
 - **Central Server Registry** — a Node.js + PostgreSQL service acting as the authoritative, FHIR-aligned data store, aggregating records synced in from edge nodes.
-- **CRDT-based Sync Engine** — built on [Automerge](https://automerge.org/), enabling edge nodes and the central server to independently edit records offline and merge changes automatically without conflicts, using queue-based synchronization.
+- **Durable synchronization** — transactional Edge outbox, automatic retry/recovery worker, HTTP acknowledgements, Central idempotency, and explicit optimistic-version conflicts.
+- **CRDT proof of concept** — [Automerge](https://automerge.org/) mechanics are isolated in the `sync-engine` workspace and do not yet drive the production path.
 - **RESTful APIs with OpenAPI/Swagger docs** — both Edge Node and Central Server expose documented, interactive API references (`/api-docs`) generated via `swagger-jsdoc` and `swagger-ui-express`.
 - **FHIR-aligned data modeling** *(in progress)* — designed to map legacy system exports into standard HL7 FHIR resource shapes, pending Technical Audit findings on actual source data structures.
 - **QR-based Patient Lookup** *(planned)* — an opaque, non-PII QR identifier system intended to speed up patient lookup in the field, with manual demographic search as a mandatory fallback for lost/damaged codes.
@@ -42,6 +43,7 @@ idg4h/
 │   │   │   └── imports.ts      # Bounded, audited multipart import boundary
 │   │   ├── validation/          # Strict runtime request schemas
 │   │   ├── middleware/          # Structured, sanitized API errors
+│   │   ├── auth/                # Offline users, RBAC, password and session services
 │   │   ├── import/              # Generic CSV/XLSX parsing and audited patient import
 │   │   ├── sync/
 │   │   │   └── syncWorker.ts   # Automatic non-overlapping synchronization loop
@@ -78,6 +80,7 @@ idg4h/
 │   ├── scripts/check-edge-sync.cjs # Canonical create/update sync integration check
 │   ├── scripts/check-edge-auto-sync.cjs # Automatic worker integration check
 │   ├── scripts/check-edge-import-auto-sync.cjs # Audited CSV/XLSX-to-Central integration check
+│   ├── scripts/evaluate-sync.cjs # Synthetic deterministic network evaluation runner
 │   └── package.json
 │
 ├── sync-engine/                # CRDT-based, queue-based synchronization layer
@@ -116,7 +119,7 @@ idg4h/
 | Edge Node storage | SQLite (`better-sqlite3`) |
 | Central Server runtime | Node.js + Express (TypeScript) |
 | Central Server storage | PostgreSQL (`pg`) |
-| Sync mechanism | Automerge (CRDT), queue-based |
+| Sync mechanism | Transactional outbox + idempotent O2O operations; Automerge proof of concept |
 | API documentation | OpenAPI / Swagger (`swagger-jsdoc`, `swagger-ui-express`) |
 | Testing | Jest, Supertest |
 | CI/CD | GitHub Actions |
@@ -481,25 +484,44 @@ proves deterministic first-worksheet selection, retained Excel row numbers,
 successful Central application and duplicate-import candidate handling. It does
 not claim compatibility with an unverified legacy export layout.
 
+To produce a synthetic synchronization evaluation artifact with deterministic
+network impairment:
+
+```bash
+npm run evaluate:sync -- --profile packet-loss --operations 100 --require-complete
+```
+
+Available profiles cover stable transport, high latency, limited bandwidth,
+dropped acknowledgements, intermittent failure, temporary Central unavailability,
+and interruption after part of the queue drains. The runner records SSR, DCI,
+retry recovery, duplicates, loss, latency, queue-drain time, throughput, CPU,
+memory, and Edge storage growth. Generated JSON is ignored by Git and explicitly
+labels itself as synthetic development evidence. See
+`docs/evaluation/sync-evaluation.md` for definitions and interpretation rules.
+
 Tests also run automatically on every push and pull request via GitHub Actions (see `.github/workflows/test.yml`).
 
 ## Project Status
 
 This project follows a structured development lifecycle: **Technical Audit → Architecture Design → Environment Setup → Development → Testing & Evaluation**.
 
-**Current phase:** Development (foundational scaffolding), with the **Technical Audit** now formally underway to inform the real FHIR-aligned data model.
+**Current phase:** Prototype development and evaluation instrumentation. The
+**Technical Audit** remains required before source-specific mappings, final FHIR
+profiles, operational roles, or field network parameters can be claimed.
 
 | Component | Status |
 |---|---|
 | Monorepo & CI infrastructure | ✅ Complete |
 | Edge Node (bootstrap, storage, health-check, docs) | ✅ Complete |
 | Central Server (bootstrap, storage, health-check, docs) | ✅ Complete |
-| Sync Engine (CRDT mechanism proven) | ✅ Scaffold complete |
+| Durable Edge-to-Central synchronization | ✅ Implemented |
+| Automerge/CRDT production integration | ⏸ Proof of concept only |
 | Automated testing (all workspaces) | ✅ Complete |
 | Real FHIR data model | ⏸ Pending Technical Audit |
 | Generic CSV/XLSX ingestion pipeline | ✅ Complete with shared synthetic mapper |
 | Verified legacy source mappings | ⏸ Pending source samples/audit |
-| Authentication & authorization | ⏸ Design pending |
+| Authentication & authorization | ✅ Offline local sessions + RBAC implemented |
+| Synthetic network evaluation instrumentation | ✅ Implemented; final study results not yet measured |
 | QR-based patient lookup | ⏸ Design documented, pending implementation |
 
 See `docs/ADR/` for architecture decisions and their rationale, including known limitations and deferred work.

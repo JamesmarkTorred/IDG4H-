@@ -9,6 +9,7 @@
     "shared"
   ],
   "scripts": {
-    "postinstall": "echo 'IDG4H workspaces linked'"
+    "postinstall": "echo 'IDG4H workspaces linked'",
+    "evaluate:sync": "npm run build --workspace=@idg4h/edge-node && npm run build --workspace=@idg4h/central-server && node central-server/scripts/evaluate-sync.cjs"
   }
 }

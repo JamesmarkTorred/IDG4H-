@@ -525,3 +525,34 @@ unavailable. Existing API suites now authenticate through the real login endpoin
 Validation: Edge build passed; all 230 tests across 26 suites passed. PWA
 integration can now begin against authenticated local endpoints; deployment TLS
 and the final field-validated role matrix remain open requirements.
+
+## 2026-09-04 — Synthetic Synchronization Evaluation Instrumentation
+
+Added a repeatable evaluation runner that creates isolated synthetic Edge patient
+operations, routes them through the real HTTP transport and Central transactional
+ingestion endpoint, and correlates the resulting SQLite outbox, PostgreSQL ledger,
+and canonical patient rows. Each run writes a structured JSON artifact with its
+scope, metric definitions, workload, injected faults, and observed values.
+
+Defined deterministic profiles for stable transport, high latency, constrained
+request bandwidth, dropped acknowledgements after Central commit, intermittent
+first-delivery failure, temporary Central unavailability, and interruption after
+half the queue. These application-level profiles support reproducible development
+testing; they do not claim to reproduce measured Baan 3 network conditions.
+
+Added metric calculations for operation-level SSR, full-patient-field DCI,
+retained and lost operations, retries recovered, unexpected and duplicate Central
+entities, acknowledgement latency distribution, queue-drain time, throughput,
+CPU time, peak memory, and Edge SQLite/WAL storage growth. Metric definitions are
+stored with each artifact so later results remain interpretable.
+
+Corrected architecture documentation that still described the implemented sync
+path as pending or CRDT-based. The live prototype uses a transactional outbox,
+HTTP operation IDs, Central idempotency, acknowledgements, retry/recovery, and
+optimistic patient versions. Automerge remains an isolated proof of concept.
+
+Validation: Central build passed; all 64 Central tests across 5 suites passed.
+All seven profiles completed isolated 10-operation development smoke runs with
+the completion gate enabled. These smoke runs verify the harness and are not final
+research measurements; formal sample sizes, repetitions, thresholds, and field
+network parameters remain to be approved.
