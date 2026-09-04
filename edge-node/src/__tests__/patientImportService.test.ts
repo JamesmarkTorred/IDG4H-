@@ -6,7 +6,7 @@ import {
 import { findPatientById } from '../db/patientRepository';
 import { findPendingOutbox } from '../db/outboxRepository';
 import { importPatientsFromCsv } from '../import/patientImportService';
-import { SyntheticPatientCsvMapper } from '../import/syntheticPatientCsvMapper';
+import { SyntheticPatientMapper } from '../import/syntheticPatientMapper';
 import { createPatientWithOutbox } from '../services/patientWriteService';
 
 const header =
@@ -30,7 +30,7 @@ describe('patientImportService', () => {
       fileName: 'synthetic-patients.csv',
       sourceSystem: 'iClinicSys',
       csv,
-      mapper: new SyntheticPatientCsvMapper('iClinicSys-synthetic'),
+      mapper: new SyntheticPatientMapper('iClinicSys-synthetic'),
     });
   }
 

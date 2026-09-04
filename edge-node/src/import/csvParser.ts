@@ -1,9 +1,6 @@
 import { parse } from 'csv-parse/sync';
 
-export interface ParsedCsvRow {
-  rowNumber: number;
-  data: Record<string, string>;
-}
+import type { ParsedImportRow } from './parsedImportRow';
 
 interface ParsedRecord {
   record: string[];
@@ -14,7 +11,7 @@ interface ParsedRecord {
 
 export function parseCsv(
   input: string
-): ParsedCsvRow[] {
+): ParsedImportRow[] {
   const records = parse(input, {
     bom: true,
     skip_empty_lines: true,

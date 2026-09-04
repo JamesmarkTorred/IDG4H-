@@ -37,7 +37,7 @@ idg4h/
 │   │   │   └── swagger.ts      # OpenAPI spec generation
 │   │   ├── routes/
 │   │   │   └── health.ts       # Health-check endpoint
-│   │   ├── import/              # Generic CSV parsing, mapping, validation and audited patient import
+│   │   ├── import/              # Generic CSV/XLSX parsing and audited patient import
 │   │   ├── sync/
 │   │   │   └── syncWorker.ts   # Automatic non-overlapping synchronization loop
 │   │   ├── __tests__/          # Jest test suite
@@ -72,7 +72,7 @@ idg4h/
 │   ├── jest.config.cjs
 │   ├── scripts/check-edge-sync.cjs # Canonical create/update sync integration check
 │   ├── scripts/check-edge-auto-sync.cjs # Automatic worker integration check
-│   ├── scripts/check-edge-import-auto-sync.cjs # Audited CSV-to-Central integration check
+│   ├── scripts/check-edge-import-auto-sync.cjs # Audited CSV/XLSX-to-Central integration check
 │   └── package.json
 │
 ├── sync-engine/                # CRDT-based, queue-based synchronization layer
@@ -379,6 +379,19 @@ the same fixture again. The replay must produce two candidates and no additional
 patients, outbox operations or Central ledger entries. Its fixture and mapper are
 synthetic and do not claim to match an official iClinicSys export.
 
+Run the same integration check with `--xlsx` to verify the Excel parser feeds the
+identical mapping, validation, candidate, transactional write, audit, outbox and
+automatic synchronization path:
+
+```bash
+node central-server/scripts/check-edge-import-auto-sync.cjs --xlsx
+```
+
+The synthetic workbook has two worksheets and a blank physical row. The check
+proves deterministic first-worksheet selection, retained Excel row numbers,
+successful Central application and duplicate-import candidate handling. It does
+not claim compatibility with an unverified legacy export layout.
+
 Tests also run automatically on every push and pull request via GitHub Actions (see `.github/workflows/test.yml`).
 
 ## Project Status
@@ -395,8 +408,8 @@ This project follows a structured development lifecycle: **Technical Audit → A
 | Sync Engine (CRDT mechanism proven) | ✅ Scaffold complete |
 | Automated testing (all workspaces) | ✅ Complete |
 | Real FHIR data model | ⏸ Pending Technical Audit |
-| Generic CSV ingestion pipeline | ✅ Complete with synthetic mapper |
-| Verified legacy mappings and Excel ingestion | ⏸ Pending source samples/audit |
+| Generic CSV/XLSX ingestion pipeline | ✅ Complete with shared synthetic mapper |
+| Verified legacy source mappings | ⏸ Pending source samples/audit |
 | Authentication & authorization | ⏸ Design pending |
 | QR-based patient lookup | ⏸ Design documented, pending implementation |
 

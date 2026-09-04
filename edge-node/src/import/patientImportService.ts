@@ -8,17 +8,25 @@ import {
 import { createPatientWithOutbox } from '../services/patientWriteService';
 import { findPatientCandidates } from '../services/patientIdentityService';
 
-import type { ImportJob, PatientInput } from '../domain';
-import type { ParsedCsvRow } from './csvParser';
+import type { ImportFileType, ImportJob, PatientInput } from '../domain';
+import type { ParsedImportRow } from './parsedImportRow';
 import type { PatientSourceMapper } from './patientSourceMapper';
 
 import { parseCsv } from './csvParser';
 import { validatePatientImport } from './patientImportValidation';
+import { parseXlsx } from './xlsxParser';
 
 export interface PatientCsvImportInput {
   fileName: string;
   sourceSystem: string;
   csv: string;
+  mapper: PatientSourceMapper;
+}
+
+export interface PatientXlsxImportInput {
+  fileName: string;
+  sourceSystem: string;
+  xlsx: Buffer;
   mapper: PatientSourceMapper;
 }
 
@@ -28,7 +36,7 @@ function errorMessage(error: unknown): string {
 
 function recordImportedPatient(
   jobId: string,
-  row: ParsedCsvRow,
+  row: ParsedImportRow,
   patientInput: PatientInput
 ): void {
   db.transaction(() => {
@@ -48,7 +56,7 @@ function recordImportedPatient(
 
 function processRow(
   jobId: string,
-  row: ParsedCsvRow,
+  row: ParsedImportRow,
   mapper: PatientSourceMapper
 ): void {
   try {
@@ -85,23 +93,58 @@ function processRow(
   }
 }
 
+function createPatientImportJob(
+  fileName: string,
+  sourceSystem: string,
+  fileType: ImportFileType
+): ImportJob {
+  return createImportJob({
+    sourceSystem,
+    fileName,
+    fileType,
+  });
+}
+
+function processRows(
+  job: ImportJob,
+  rows: ParsedImportRow[],
+  mapper: PatientSourceMapper
+): ImportJob {
+  for (const row of rows) {
+    processRow(job.id, row, mapper);
+  }
+
+  return completeImportJob(job.id);
+}
+
 export function importPatientsFromCsv(
   input: PatientCsvImportInput
 ): ImportJob {
-  const job = createImportJob({
-    sourceSystem: input.sourceSystem,
-    fileName: input.fileName,
-    fileType: 'csv',
-  });
+  const job = createPatientImportJob(
+    input.fileName,
+    input.sourceSystem,
+    'csv'
+  );
 
   try {
-    const rows = parseCsv(input.csv);
+    return processRows(job, parseCsv(input.csv), input.mapper);
+  } catch (error) {
+    return failImportJob(job.id, errorMessage(error));
+  }
+}
 
-    for (const row of rows) {
-      processRow(job.id, row, input.mapper);
-    }
+export async function importPatientsFromXlsx(
+  input: PatientXlsxImportInput
+): Promise<ImportJob> {
+  const job = createPatientImportJob(
+    input.fileName,
+    input.sourceSystem,
+    'xlsx'
+  );
 
-    return completeImportJob(job.id);
+  try {
+    const rows = await parseXlsx(input.xlsx);
+    return processRows(job, rows, input.mapper);
   } catch (error) {
     return failImportJob(job.id, errorMessage(error));
   }

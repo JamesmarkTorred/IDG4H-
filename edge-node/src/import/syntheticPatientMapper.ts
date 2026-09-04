@@ -16,7 +16,7 @@ function optional(
   return trimmed ? trimmed : undefined;
 }
 
-export class SyntheticPatientCsvMapper
+export class SyntheticPatientMapper
   implements PatientSourceMapper
 {
   constructor(

@@ -383,3 +383,28 @@ check is included in CI.
 Validation: Edge and Central builds passed; all 149 Edge tests across 17 suites
 passed; the live synthetic import-to-automatic-sync integration check passed with
 two acknowledged operations and zero duplicate patients.
+
+## 2026-09-04 — Generic XLSX Ingestion Through the Shared Import Pipeline
+
+Added an ExcelJS parser for `.xlsx` buffers. CSV and XLSX now return the same
+`ParsedImportRow` contract, so file handling stops before mapping and all patient
+rows continue through the existing source mapper, validation, identity candidate
+detection, transactional patient/outbox/audit write, and import accounting path.
+The synthetic mapper was renamed to remove its former CSV-only label.
+
+The parser deterministically reads the first worksheet, rejects empty worksheets
+and case-insensitive duplicate headers, ignores blank rows, preserves physical
+Excel row numbers, and normalizes text, numbers, booleans and dates to mapper-ready
+strings. The repository includes a synthetic two-sheet workbook with a blank row;
+it is not presented as an iClinicSys, CHITS or eBHS export.
+
+The import-to-sync integration harness now supports both formats. Its XLSX mode
+runs the real workbook import while the Edge sync worker is active, confirms two
+audited patients and outbox operations become acknowledged locally and applied in
+Central, then imports the workbook again and verifies two candidates with no new
+canonical or ledger records. CI runs both CSV and XLSX modes.
+
+Validation: Edge and Central builds passed; all 157 Edge tests across 19 suites
+passed. Both live synthetic CSV and XLSX import-to-automatic-sync checks passed
+with two acknowledged operations and zero duplicate patients. Additional import
+formats are deferred; the next application milestone is the Edge local REST API.

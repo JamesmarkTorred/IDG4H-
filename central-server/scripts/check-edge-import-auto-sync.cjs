@@ -9,9 +9,44 @@ const { tmpdir } = require('node:os');
 const { join, resolve } = require('node:path');
 const Database = require('better-sqlite3');
 
+const isXlsx = process.argv.includes('--xlsx');
+const importFormat = isXlsx ? 'xlsx' : 'csv';
+const importCommand = isXlsx
+  ? 'npm run import:synthetic:xlsx --workspace=@idg4h/edge-node'
+  : 'npm run import:synthetic --workspace=@idg4h/edge-node';
+const sourceSystem = isXlsx ? 'synthetic-xlsx' : 'iClinicSys-synthetic';
+const expectedPatients = isXlsx
+  ? [
+      {
+        rowNumber: 2,
+        sourceRecordId: 'E2E-XLSX-001',
+        lastName: 'ExcelImport',
+        firstName: 'Alpha',
+      },
+      {
+        rowNumber: 4,
+        sourceRecordId: 'E2E-XLSX-002',
+        lastName: 'ExcelImport',
+        firstName: 'Beta',
+      },
+    ]
+  : [
+      {
+        rowNumber: 2,
+        sourceRecordId: 'E2E-IMPORT-001',
+        lastName: 'ImportTest',
+        firstName: 'Alpha',
+      },
+      {
+        rowNumber: 3,
+        sourceRecordId: 'E2E-IMPORT-002',
+        lastName: 'ImportTest',
+        firstName: 'Beta',
+      },
+    ];
 const schema = `idg4h_import_${randomUUID().replace(/-/g, '')}`;
 process.env.PGOPTIONS = `-c search_path=${schema}`;
-process.env.NODE_ID = 'edge-import-auto-sync-test';
+process.env.NODE_ID = `edge-import-${importFormat}-auto-sync-test`;
 process.env.SYNC_INTERVAL_MS = '100';
 
 const { pool, initSchema } = require('../dist/db/connection');
@@ -63,8 +98,12 @@ async function runSyntheticImport(environment) {
   const child = spawn(
     windows ? (process.env.ComSpec || 'cmd.exe') : 'npm',
     windows
-      ? ['/d', '/s', '/c', 'npm run import:synthetic --workspace=@idg4h/edge-node']
-      : ['run', 'import:synthetic', '--workspace=@idg4h/edge-node'],
+      ? ['/d', '/s', '/c', importCommand]
+      : [
+          'run',
+          isXlsx ? 'import:synthetic:xlsx' : 'import:synthetic',
+          '--workspace=@idg4h/edge-node',
+        ],
     {
       cwd: resolve(__dirname, '../..'),
       env: environment,
@@ -127,12 +166,14 @@ async function check() {
     assert.equal(firstJobs.length, 1);
     const firstJob = firstJobs[0];
     assert.deepEqual({
+      fileType: firstJob.file_type,
       status: firstJob.status,
       totalRows: firstJob.total_rows,
       importedRows: firstJob.imported_rows,
       candidateRows: firstJob.candidate_rows,
       failedRows: firstJob.failed_rows,
     }, {
+      fileType: importFormat,
       status: 'completed',
       totalRows: 2,
       importedRows: 2,
@@ -150,10 +191,11 @@ async function check() {
       rowNumber: row.row_number,
       status: row.status,
       sourceRecordId: row.source_record_id,
-    })), [
-      { rowNumber: 2, status: 'imported', sourceRecordId: 'E2E-IMPORT-001' },
-      { rowNumber: 3, status: 'imported', sourceRecordId: 'E2E-IMPORT-002' },
-    ]);
+    })), expectedPatients.map(patient => ({
+      rowNumber: patient.rowNumber,
+      status: 'imported',
+      sourceRecordId: patient.sourceRecordId,
+    })));
     for (const row of importedRows) {
       assert.ok(row.local_entity_id);
       assert.equal(JSON.parse(row.raw_data).source_record_id, row.source_record_id);
@@ -165,10 +207,10 @@ async function check() {
       ORDER BY source_record_id
     `).all();
     assert.equal(edgePatients.length, 2);
-    assert.deepEqual(edgePatients.map(patient => patient.source_record_id), [
-      'E2E-IMPORT-001',
-      'E2E-IMPORT-002',
-    ]);
+    assert.deepEqual(
+      edgePatients.map(patient => patient.source_record_id),
+      expectedPatients.map(patient => patient.sourceRecordId)
+    );
     assert.equal(inspectionDb.prepare('SELECT COUNT(*) AS count FROM outbox').get().count, 2);
 
     await waitFor(() => inspectionDb.prepare(`
@@ -191,15 +233,15 @@ async function check() {
     await waitFor(async () => (await pool.query(`
       SELECT COUNT(*)::int AS count
       FROM patients
-      WHERE source_system = 'iClinicSys-synthetic'
-    `)).rows[0].count === 2);
+      WHERE source_system = $1
+    `, [sourceSystem])).rows[0].count === 2);
     const centralPatients = (await pool.query(`
       SELECT id, originating_node_id, source_system, source_record_id,
              last_name, first_name, version
       FROM patients
-      WHERE source_system = 'iClinicSys-synthetic'
+      WHERE source_system = $1
       ORDER BY source_record_id
-    `)).rows;
+    `, [sourceSystem])).rows;
     assert.deepEqual(centralPatients.map(patient => ({
       originatingNodeId: patient.originating_node_id,
       sourceSystem: patient.source_system,
@@ -207,24 +249,14 @@ async function check() {
       lastName: patient.last_name,
       firstName: patient.first_name,
       version: patient.version,
-    })), [
-      {
-        originatingNodeId: 'edge-import-auto-sync-test',
-        sourceSystem: 'iClinicSys-synthetic',
-        sourceRecordId: 'E2E-IMPORT-001',
-        lastName: 'ImportTest',
-        firstName: 'Alpha',
-        version: 1,
-      },
-      {
-        originatingNodeId: 'edge-import-auto-sync-test',
-        sourceSystem: 'iClinicSys-synthetic',
-        sourceRecordId: 'E2E-IMPORT-002',
-        lastName: 'ImportTest',
-        firstName: 'Beta',
-        version: 1,
-      },
-    ]);
+    })), expectedPatients.map(patient => ({
+      originatingNodeId: `edge-import-${importFormat}-auto-sync-test`,
+      sourceSystem,
+      sourceRecordId: patient.sourceRecordId,
+      lastName: patient.lastName,
+      firstName: patient.firstName,
+      version: 1,
+    })));
     const ledgers = (await pool.query(`
       SELECT operation_id, entity_id, operation_type, status
       FROM sync_operations
@@ -263,10 +295,11 @@ async function check() {
       rowNumber: row.row_number,
       status: row.status,
       sourceRecordId: row.source_record_id,
-    })), [
-      { rowNumber: 2, status: 'candidate', sourceRecordId: 'E2E-IMPORT-001' },
-      { rowNumber: 3, status: 'candidate', sourceRecordId: 'E2E-IMPORT-002' },
-    ]);
+    })), expectedPatients.map(patient => ({
+      rowNumber: patient.rowNumber,
+      status: 'candidate',
+      sourceRecordId: patient.sourceRecordId,
+    })));
     assert.deepEqual(
       candidateRows.map(row => row.local_entity_id).sort(),
       edgePatients.map(patient => patient.id).sort()
@@ -280,7 +313,7 @@ async function check() {
     console.log(firstImportOutput.trim());
     console.log(secondImportOutput.trim());
     console.log(edgeOutput.trim());
-    console.log('End-to-end audited synthetic CSV import and automatic O2O synchronization passed without manual sync or duplicate patients.');
+    console.log(`End-to-end audited synthetic ${importFormat.toUpperCase()} import and automatic O2O synchronization passed without manual sync or duplicate patients.`);
   } finally {
     if (inspectionDb) inspectionDb.close();
     await stopChild(edgeProcess);
