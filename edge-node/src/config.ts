@@ -15,6 +15,8 @@ const config = {
       ? configuredDbPath
       : path.resolve(edgeRoot, configuredDbPath),
   centralServerUrl: process.env.CENTRAL_SERVER_URL ?? 'http://localhost:5000',
+  syncIntervalMs:
+    Number.parseInt(process.env.SYNC_INTERVAL_MS ?? '', 10) || 30_000,
 };
 
 export default config;

@@ -33,6 +33,23 @@ async function expectEmpty() {
   expect(await receipts()).toEqual([]);
   expect((await pool.query('SELECT * FROM patients')).rows).toEqual([]);
 }
+function patientUpdate(
+  created: SyncOperationInput,
+  version: number,
+  fields: Record<string, unknown> = {}
+): SyncOperationInput {
+  return {
+    ...created,
+    operationId: randomUUID(),
+    operationType: 'update',
+    payload: {
+      ...(created.payload as Record<string, unknown>),
+      version,
+      updatedAt: '2026-09-03T09:00:00.000Z',
+      ...fields,
+    },
+  };
+}
 
 it('ACKs a committed patient and applied ledger record with source metadata', async () => {
   const input = operation('patient', {
@@ -79,6 +96,164 @@ it('preserves the original canonical row and ledger on retries, including a chan
   await initSchema(1);
   expect(await receipts()).toEqual(before);
   expect((await pool.query('SELECT * FROM patients')).rows).toEqual(patientBefore);
+});
+
+it('applies a patient v1 to v2 update and commits its ledger entry', async () => {
+  const created = operation('patient', {
+    contactNumber: 'old-number',
+    barangay: 'Old Barangay',
+  });
+  await receiveSyncOperation(created);
+  const before = (await pool.query(
+    'SELECT originating_node_id, created_at FROM patients WHERE id=$1',
+    [created.entityId]
+  )).rows[0];
+  const update = patientUpdate(created, 2, {
+    firstName: 'Updated',
+    contactNumber: '09123456789',
+    barangay: 'New Barangay',
+  });
+
+  const response = await post(update);
+
+  expect(response.status).toBe(201);
+  expect(response.body).toEqual({
+    operationId: update.operationId,
+    status: 'applied',
+    duplicate: false,
+  });
+  const patient = (await pool.query(
+    'SELECT * FROM patients WHERE id=$1',
+    [created.entityId]
+  )).rows[0];
+  expect(patient).toMatchObject({
+    id: created.entityId,
+    originating_node_id: before.originating_node_id,
+    first_name: 'Updated',
+    contact_number: '09123456789',
+    barangay: 'New Barangay',
+    version: 2,
+    created_at: before.created_at,
+    updated_at: new Date('2026-09-03T09:00:00.000Z'),
+  });
+  expect(await findSyncOperationById(update.operationId)).toMatchObject({
+    status: 'applied',
+    operationType: 'update',
+  });
+});
+
+it.each([1, 2])(
+  'rejects stale patient update v%i against current v2 without mutating canonical data',
+  async (incomingVersion) => {
+    const created = operation('patient', { contactNumber: 'v1' });
+    await receiveSyncOperation(created);
+    await receiveSyncOperation(patientUpdate(created, 2, { contactNumber: 'v2' }));
+    const before = (await pool.query('SELECT * FROM patients WHERE id=$1', [created.entityId])).rows[0];
+    const stale = patientUpdate(created, incomingVersion, { contactNumber: 'stale-overwrite' });
+
+    const response = await post(stale);
+
+    expect(response.status).toBe(409);
+    expect(response.body).toEqual({
+      error: expect.any(String),
+      conflict: {
+        code: 'PATIENT_VERSION_CONFLICT',
+        entityType: 'patient',
+        entityId: created.entityId,
+        reason: 'stale-version',
+        currentVersion: 2,
+        incomingVersion,
+        expectedVersion: 3,
+      },
+    });
+    expect((await pool.query('SELECT * FROM patients WHERE id=$1', [created.entityId])).rows[0]).toEqual(before);
+    expect(await findSyncOperationById(stale.operationId)).toBeUndefined();
+  }
+);
+
+it('rejects a patient version gap without mutating canonical data or marking the operation applied', async () => {
+  const created = operation('patient', { contactNumber: 'v1' });
+  await receiveSyncOperation(created);
+  await receiveSyncOperation(patientUpdate(created, 2, { contactNumber: 'v2' }));
+  const before = (await pool.query('SELECT * FROM patients WHERE id=$1', [created.entityId])).rows[0];
+  const gap = patientUpdate(created, 4, { contactNumber: 'gap-overwrite' });
+
+  const response = await post(gap);
+
+  expect(response.status).toBe(409);
+  expect(response.body.conflict).toEqual({
+    code: 'PATIENT_VERSION_CONFLICT',
+    entityType: 'patient',
+    entityId: created.entityId,
+    reason: 'version-gap',
+    currentVersion: 2,
+    incomingVersion: 4,
+    expectedVersion: 3,
+  });
+  expect((await pool.query('SELECT * FROM patients WHERE id=$1', [created.entityId])).rows[0]).toEqual(before);
+  expect(await findSyncOperationById(gap.operationId)).toBeUndefined();
+});
+
+it('returns a structured conflict when an update reaches Central before its patient create', async () => {
+  const created = operation();
+  const update = patientUpdate(created, 2);
+
+  const response = await post(update);
+
+  expect(response.status).toBe(409);
+  expect(response.body.conflict).toEqual({
+    code: 'PATIENT_VERSION_CONFLICT',
+    entityType: 'patient',
+    entityId: created.entityId,
+    reason: 'missing-patient',
+    currentVersion: null,
+    incomingVersion: 2,
+    expectedVersion: null,
+  });
+  await expectEmpty();
+});
+
+it('serializes competing patient v2 updates so only one is applied', async () => {
+  const created = operation();
+  await receiveSyncOperation(created);
+  const updates = [
+    patientUpdate(created, 2, { contactNumber: 'first' }),
+    patientUpdate(created, 2, { contactNumber: 'second' }),
+  ];
+
+  const responses = await Promise.all(updates.map(post));
+
+  expect(responses.filter(response => response.status === 201)).toHaveLength(1);
+  const conflict = responses.find(response => response.status === 409);
+  expect(conflict?.body.conflict).toMatchObject({
+    reason: 'stale-version',
+    currentVersion: 2,
+    incomingVersion: 2,
+    expectedVersion: 3,
+  });
+  expect((await pool.query('SELECT version FROM patients WHERE id=$1', [created.entityId])).rows[0].version).toBe(2);
+  const appliedUpdates = await pool.query(
+    "SELECT operation_id FROM sync_operations WHERE entity_id=$1 AND operation_type='update' AND status='applied'",
+    [created.entityId]
+  );
+  expect(appliedUpdates.rowCount).toBe(1);
+});
+
+it('acknowledges an idempotent retry of an already applied patient update', async () => {
+  const created = operation();
+  await receiveSyncOperation(created);
+  const update = patientUpdate(created, 2, { contactNumber: 'v2' });
+  expect((await post(update)).status).toBe(201);
+
+  const retry = await post({
+    ...update,
+    payload: { version: 999, contactNumber: 'must-not-apply' },
+  });
+
+  expect(retry.status).toBe(200);
+  expect(retry.body).toEqual({ operationId: update.operationId, status: 'applied', duplicate: true });
+  expect((await pool.query('SELECT version, contact_number FROM patients WHERE id=$1', [created.entityId])).rows[0])
+    .toEqual({ version: 2, contact_number: 'v2' });
 });
 
 it('serializes concurrent first deliveries into one canonical create and seven duplicates', async () => {
@@ -141,10 +316,18 @@ it('creates the full encounter, observation and immunization chain', async () =>
   expect(await receipts()).toHaveLength(4);
 });
 
-it.each(['update', 'delete'] as const)('rejects unsupported %s without retaining the operation', async (operationType) => {
+it('rejects unsupported delete without retaining the operation', async () => {
+  const operationType = 'delete' as const;
   expect((await post({ ...operation(), operationType })).status).toBe(400);
   await expectEmpty();
 });
+it.each(['encounter', 'observation', 'immunization'] as const)(
+  'rejects unsupported %s update without retaining the operation',
+  async (entityType) => {
+    expect((await post({ ...operation(entityType), operationType: 'update' })).status).toBe(400);
+    await expectEmpty();
+  }
+);
 it.each([null, [], 'opaque', 42, false, {}])('rejects noncanonical payload %j and rolls back its ledger entry', async (payload) => {
   expect((await post({ ...operation(), payload })).status).toBe(400);
   await expectEmpty();

@@ -37,11 +37,14 @@ idg4h/
 │   │   │   └── swagger.ts      # OpenAPI spec generation
 │   │   ├── routes/
 │   │   │   └── health.ts       # Health-check endpoint
+│   │   ├── sync/
+│   │   │   └── syncWorker.ts   # Automatic non-overlapping synchronization loop
 │   │   ├── __tests__/          # Jest test suite
 │   │   ├── app.ts              # Express app configuration
 │   │   ├── config.ts           # Environment/config loader
 │   │   └── index.ts            # Entry point / server listener
 │   ├── .env                    # Local environment variables (gitignored)
+│   ├── .env.example            # Safe deployment configuration example
 │   ├── tsconfig.json           # Strict TypeScript compiler configuration
 │   ├── jest.config.cjs         # TypeScript test configuration
 │   └── package.json
@@ -65,7 +68,8 @@ idg4h/
 │   ├── .env
 │   ├── tsconfig.json
 │   ├── jest.config.cjs
-│   ├── scripts/check-edge-sync.cjs # Canonical create sync integration check
+│   ├── scripts/check-edge-sync.cjs # Canonical create/update sync integration check
+│   ├── scripts/check-edge-auto-sync.cjs # Automatic worker integration check
 │   └── package.json
 │
 ├── sync-engine/                # CRDT-based, queue-based synchronization layer
@@ -267,11 +271,20 @@ and rejected for now; recovery/application of legacy ledger entries is deferred.
 
 **A receipt is not a synchronization ACK.** `HttpSyncTransport` requires
 `status: "applied"`, which Central now returns only after the canonical transaction
-commits. The manual command connects it to the Edge Sync Engine for create
-operations. A continuously running synchronization worker, updates, deletes,
-conflict handling, and authentication remain separate milestones.
+commits. The Edge server starts a synchronization worker after its HTTP listener
+is ready. The worker recovers stale operations once, runs an immediate cycle,
+then waits `SYNC_INTERVAL_MS` after each completed cycle before trying again.
+Patient updates use optimistic version conflicts. Delete operations, updates for
+other entity types, conflict resolution workflows, and authentication remain
+separate milestones.
 
-With Central running, synchronize the configured Edge database once:
+With Central running, starting the Edge server also starts automatic sync:
+
+```bash
+npm run dev --workspace=@idg4h/edge-node
+```
+
+The one-shot command remains available for inspection and maintenance:
 
 ```bash
 npm run sync --workspace=@idg4h/edge-node
@@ -314,8 +327,8 @@ Central's suite covers canonical field mapping, concurrent duplicates, dependenc
 ordering, validation, rollback on application and commit failures, and migration
 of the earlier ledger table. Edge transport unit tests mock HTTP responses.
 
-To verify real HTTP create synchronization of a patient and visit, including a
-lost acknowledgement and retry:
+To verify real HTTP synchronization of a patient create, patient update, and
+visit, including version-conflict handling and a lost acknowledgement retry:
 
 ```bash
 npm run build --workspace=@idg4h/central-server
@@ -324,9 +337,10 @@ node central-server/scripts/check-edge-sync.cjs
 ```
 
 The check uses a temporary SQLite file, a temporary PostgreSQL schema and a
-loopback server, then cleans them up. It first creates one synthetic patient and
-outbox entry, invokes the actual `npm run sync` command in a separate process,
-and verifies the PostgreSQL patient, applied ledger record and Edge acknowledgement:
+loopback server, then cleans them up. It creates one synthetic Edge patient,
+invokes the actual `npm run sync` command in a separate process, updates the
+patient from v1 to v2, and invokes the same command again. It verifies the
+PostgreSQL patient, applied ledger records and Edge acknowledgements:
 
 ```text
 [sync] recovered 0 stale operation(s)
@@ -335,8 +349,20 @@ and verifies the PostgreSQL patient, applied ledger record and Edge acknowledgem
 [sync] failed=0
 ```
 
-It then verifies a complete visit and a lost-ACK retry, leaving four canonical
-rows with applied ledger records and acknowledged Edge outbox entries.
+It then verifies a complete visit and a lost-ACK retry. Finally, it sends a stale
+v2 patient update against Central v2 and verifies an HTTP 409, an unmodified
+canonical patient, no applied ledger entry, and a failed Edge outbox record.
+
+To verify that the running Edge server synchronizes automatically, without
+invoking the one-shot sync command:
+
+```bash
+node central-server/scripts/check-edge-auto-sync.cjs
+```
+
+This starts loopback Edge and Central servers with disposable SQLite and
+PostgreSQL storage, creates a pending patient before Edge starts, and waits for
+the worker to persist `acknowledged` locally and `applied` centrally.
 
 Tests also run automatically on every push and pull request via GitHub Actions (see `.github/workflows/test.yml`).
 

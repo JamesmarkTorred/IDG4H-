@@ -53,9 +53,9 @@ async function check() {
     process.env.DB_PATH = join(edgeDirectory, 'edge.sqlite');
     const connection = require('../../edge-node/dist/db/connection');
     edgeDb = connection.db;
-    const { createPatientWithOutbox } = require('../../edge-node/dist/services/patientWriteService');
+    const { createPatientWithOutbox, updatePatientWithOutbox } = require('../../edge-node/dist/services/patientWriteService');
     const { saveClinicalEncounter } = require('../../edge-node/dist/services/clinicalEncounterService');
-    const { findPendingOutbox, findOutboxById } = require('../../edge-node/dist/db/outboxRepository');
+    const { enqueueOutboxOperation, findPendingOutbox, findOutboxById } = require('../../edge-node/dist/db/outboxRepository');
     const { HttpSyncTransport } = require('../../edge-node/dist/sync/httpSyncTransport');
     const { SyncEngine } = require('../../edge-node/dist/sync/syncEngine');
     const { ExponentialBackoffRetryPolicy } = require('../../edge-node/dist/sync/retryPolicy');
@@ -68,13 +68,39 @@ async function check() {
     await runManualSync();
     assert.equal(findOutboxById(patientOperation.id).status, 'acknowledged');
     assert.ok(findOutboxById(patientOperation.id).acknowledgedAt);
-    const storedPatient = await pool.query('SELECT id, originating_node_id FROM patients WHERE id=$1', [patient.id]);
+    const storedPatient = await pool.query('SELECT id, originating_node_id, version FROM patients WHERE id=$1', [patient.id]);
     assert.equal(storedPatient.rowCount, 1);
     assert.equal(storedPatient.rows[0].originating_node_id, patient.nodeId);
+    assert.equal(storedPatient.rows[0].version, 1);
     const patientLedger = await pool.query('SELECT status, applied_at FROM sync_operations WHERE operation_id=$1', [patientOperation.operationId]);
     assert.equal(patientLedger.rows[0].status, 'applied');
     assert.ok(patientLedger.rows[0].applied_at);
     console.log('Manual sync verified: PostgreSQL patient stored, ledger applied, Edge outbox acknowledged.');
+
+    const updatedPatient = updatePatientWithOutbox({
+      id: patient.id,
+      expectedVersion: 1,
+      contactNumber: '09123456789',
+    });
+    assert.equal(updatedPatient.version, 2);
+    const [patientUpdateOperation] = findPendingOutbox();
+    assert.equal(patientUpdateOperation.entityId, patient.id);
+    assert.equal(patientUpdateOperation.operationType, 'update');
+    await runManualSync();
+    assert.equal(findOutboxById(patientUpdateOperation.id).status, 'acknowledged');
+    const centrallyUpdatedPatient = await pool.query(
+      'SELECT version, contact_number FROM patients WHERE id=$1',
+      [patient.id]
+    );
+    assert.deepEqual(centrallyUpdatedPatient.rows[0], {
+      version: 2,
+      contact_number: '09123456789',
+    });
+    assert.equal((await pool.query(
+      'SELECT status FROM sync_operations WHERE operation_id=$1',
+      [patientUpdateOperation.operationId]
+    )).rows[0].status, 'applied');
+    console.log('Patient update sync verified: Edge v2 applied centrally and its outbox operation was acknowledged.');
 
     const now = new Date().toISOString();
     const visit = saveClinicalEncounter({
@@ -104,7 +130,7 @@ async function check() {
 
     assert.deepEqual(await engine.runOnce(), { attempted: 3, acknowledged: 2, failed: 1 });
     const before = (await pool.query('SELECT * FROM sync_operations ORDER BY operation_id')).rows;
-    assert.equal(before.length, 4);
+    assert.equal(before.length, 5);
     assert.deepEqual(await engine.runOnce(), { attempted: 1, acknowledged: 1, failed: 0 });
     assert.deepEqual((await pool.query('SELECT * FROM sync_operations ORDER BY operation_id')).rows, before);
     for (const operation of operations) {
@@ -127,7 +153,37 @@ async function check() {
     assert.equal(immunizations[0].id, visit.immunizations[0].id);
     assert.equal(immunizations[0].encounter_id, visit.encounter.id);
     assert.equal(immunizations[0].status, 'completed');
-    console.log('Edge-to-Central create sync passed: four canonical records, applied ACKs, and an idempotent lost-ACK retry.');
+    assert.equal(patients[0].version, 2);
+    assert.equal(patients[0].contact_number, '09123456789');
+
+    const staleOperation = enqueueOutboxOperation({
+      entityType: 'patient',
+      entityId: patient.id,
+      operationType: 'update',
+      payload: {
+        ...updatedPatient,
+        contactNumber: 'stale-overwrite-must-not-apply',
+      },
+    });
+    const conflictEngine = new SyncEngine(
+      new HttpSyncTransport(),
+      new ExponentialBackoffRetryPolicy(60_000)
+    );
+    assert.deepEqual(await conflictEngine.runOnce(), { attempted: 1, acknowledged: 0, failed: 1 });
+    const failedOutbox = findOutboxById(staleOperation.id);
+    assert.equal(failedOutbox.status, 'failed');
+    assert.equal(failedOutbox.attemptCount, 1);
+    assert.match(failedOutbox.lastError, /HTTP 409/);
+    assert.match(failedOutbox.lastError, /PATIENT_VERSION_CONFLICT/);
+    assert.deepEqual((await pool.query(
+      'SELECT version, contact_number FROM patients WHERE id=$1',
+      [patient.id]
+    )).rows[0], { version: 2, contact_number: '09123456789' });
+    assert.equal((await pool.query(
+      'SELECT * FROM sync_operations WHERE operation_id=$1',
+      [staleOperation.operationId]
+    )).rowCount, 0);
+    console.log('Edge-to-Central update sync passed: valid v2 applied and stale v2 was rejected without overwrite or ACK.');
   } finally {
     try {
       if (edgeDb) edgeDb.close();

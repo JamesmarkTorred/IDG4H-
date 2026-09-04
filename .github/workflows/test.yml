@@ -57,6 +57,9 @@ jobs:
       - run: node central-server/scripts/check-edge-sync.cjs
         env:
           DATABASE_URL: postgres://postgres:testpass@localhost:5432/idg4h_central_test
+      - run: node central-server/scripts/check-edge-auto-sync.cjs
+        env:
+          DATABASE_URL: postgres://postgres:testpass@localhost:5432/idg4h_central_test
 
   test-shared:
     runs-on: ubuntu-latest

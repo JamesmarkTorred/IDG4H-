@@ -244,3 +244,54 @@ explicitly; dependency versions were not changed.
 
 Validation: Edge build passed; all 114 tests across 13 suites passed. Central
 optimistic patient update application remains the next milestone.
+
+## 2026-09-04 — Central Patient Update Conflicts
+
+Central now applies patient updates only when the incoming version is exactly
+the current canonical version plus one. Each update locks the patient row, writes
+the complete patient snapshot while preserving its originating node and creation
+timestamp, marks the sync ledger operation applied, and commits those changes in
+the existing transaction before Edge receives an acknowledgement.
+
+Stale versions, version gaps, and updates whose patient create has not arrived
+return HTTP 409 with a structured `PATIENT_VERSION_CONFLICT` body. The body
+includes the reason, current version, incoming version and expected version.
+Conflict rollback leaves the canonical patient unchanged and does not retain a
+ledger record claiming that the operation was applied. Concurrent updates for
+the same next version serialize on the patient row, so one applies and the other
+receives a stale-version conflict. Replaying the successful operation ID remains
+idempotent.
+
+The isolated Edge-to-Central harness now proves the complete v1 create, local v2
+update, central v2 application and Edge acknowledgement flow. It also injects a
+stale v2 operation against Central v2 and verifies that Edge records a failed
+attempt while Central preserves v2 and has no applied ledger entry for the
+conflict.
+
+Validation: both workspaces build; all 56 Central tests across three suites pass;
+the real HTTP integration check passes for the valid update and conflict paths.
+
+## 2026-09-04 — Automatic Edge Synchronization Worker
+
+Added a synchronization worker that starts with the Edge HTTP server. It recovers
+stale processing records, runs one immediate synchronization cycle, and schedules
+the next cycle with `setTimeout` only after the current cycle finishes. This
+prevents overlapping sends when Central or the network is slow. Unexpected cycle
+errors are logged without terminating the worker or blocking local Express and
+SQLite activity.
+
+The worker interval is configured by `SYNC_INTERVAL_MS`, with a 30-second default
+documented in the new Edge `.env.example`. SIGINT and SIGTERM stop new cycles,
+wait for an active cycle to finish, close the HTTP server and SQLite connection,
+and then exit.
+
+Six focused tests cover the immediate cycle, startup recovery, non-overlap,
+continuation after failure, timer cancellation and waiting for an active cycle.
+The process-level integration check starts compiled Edge and Central servers with
+temporary databases, creates a pending patient without running the manual sync
+command, and observes local acknowledgement plus Central canonical and ledger
+application. The check is included in CI.
+
+Validation: Edge build passed; all 120 tests across 14 suites passed. The real
+automatic Edge-to-Central synchronization check passed with one attempted and
+acknowledged operation and no failures.

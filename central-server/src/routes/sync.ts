@@ -1,15 +1,29 @@
 import { Router } from 'express';
 import { receiveSyncOperation, SyncOperationStateError, type ReceiveSyncOperationResult } from '../services/syncOperationService';
+import { PatientVersionConflictError } from '../services/applySyncOperation';
 import { InvalidSyncOperationError, parseSyncOperation } from '../services/syncValidation';
 
 const router = Router();
+
+interface SyncConflictResponse {
+  error: string;
+  conflict: {
+    code: 'PATIENT_VERSION_CONFLICT';
+    entityType: 'patient';
+    entityId: string;
+    reason: 'missing-patient' | 'stale-version' | 'version-gap';
+    currentVersion: number | null;
+    incomingVersion: number;
+    expectedVersion: number | null;
+  };
+}
 
 /**
  * @openapi
  * /api/sync/operations:
  *   post:
- *     summary: Atomically apply an Edge create operation
- *     description: Commits the ledger and canonical create together before acknowledging. Already applied operation IDs are acknowledged without reapplying. Update and delete are not implemented.
+ *     summary: Atomically apply an Edge synchronization operation
+ *     description: Commits the ledger and canonical mutation together before acknowledging. Patient updates apply only when their version is exactly one greater than the current canonical version. Already applied operation IDs are acknowledged without reapplying. Delete and non-patient update are not implemented.
  *     parameters:
  *       - in: header
  *         name: Idempotency-Key
@@ -35,7 +49,7 @@ const router = Router();
  *               payload: { type: object, additionalProperties: true }
  *     responses:
  *       201:
- *         description: Canonical create and applied ledger status committed
+ *         description: Canonical mutation and applied ledger status committed
  *         content:
  *           application/json:
  *             schema:
@@ -59,11 +73,11 @@ const router = Router();
  *       400:
  *         description: Invalid payload, unsupported operation type, or mismatched headers
  *       409:
- *         description: Unapplied existing ledger entry, missing dependency, or duplicate canonical entity
+ *         description: Patient version conflict, unapplied existing ledger entry, missing dependency, or duplicate canonical entity
  *       503:
  *         description: Storage unavailable; retry with the same operation ID
  */
-router.post<Record<string, never>, ReceiveSyncOperationResult | { error: string }, unknown>(
+router.post<Record<string, never>, ReceiveSyncOperationResult | SyncConflictResponse | { error: string }, unknown>(
   '/operations',
   async (req, res) => {
     try {
@@ -86,6 +100,19 @@ router.post<Record<string, never>, ReceiveSyncOperationResult | { error: string 
       const code = typeof error === 'object' && error !== null && 'code' in error ? error.code : undefined;
       if (error instanceof InvalidSyncOperationError) {
         res.status(400).json({ error: error.message });
+      } else if (error instanceof PatientVersionConflictError) {
+        res.status(409).json({
+          error: error.message,
+          conflict: {
+            code: error.code,
+            entityType: 'patient',
+            entityId: error.entityId,
+            reason: error.reason,
+            currentVersion: error.currentVersion,
+            incomingVersion: error.incomingVersion,
+            expectedVersion: error.expectedVersion,
+          },
+        });
       } else if (error instanceof SyncOperationStateError) {
         res.status(409).json({ error: error.message });
       } else if (code === '23503' || code === '23505') {

@@ -7,6 +7,33 @@ import type {
 } from '../domain';
 import { InvalidSyncOperationError } from './syncValidation';
 
+export type PatientVersionConflictReason =
+  | 'missing-patient'
+  | 'stale-version'
+  | 'version-gap';
+
+export class PatientVersionConflictError extends Error {
+  readonly code = 'PATIENT_VERSION_CONFLICT';
+
+  constructor(
+    readonly entityId: string,
+    readonly reason: PatientVersionConflictReason,
+    readonly incomingVersion: number,
+    readonly currentVersion: number | null,
+    readonly expectedVersion: number | null
+  ) {
+    const detail =
+      currentVersion === null
+        ? 'the patient does not exist centrally'
+        : `Central is at version ${currentVersion} and expected version ${expectedVersion}`;
+
+    super(
+      `Patient ${entityId} update version ${incomingVersion} conflicts because ${detail}.`
+    );
+    this.name = 'PatientVersionConflictError';
+  }
+}
+
 function requiredString(
   payload: Record<string, unknown>,
   key: string
@@ -317,6 +344,141 @@ async function applyPatientCreate(
   );
 }
 
+async function applyPatientUpdate(
+  client: PoolClient,
+  operation: SyncOperationInput,
+  p: Record<string, unknown>,
+  incomingVersion: number
+): Promise<void> {
+  const current = await client.query<{
+    version: number;
+  }>(
+    `
+      SELECT version
+      FROM patients
+      WHERE id = $1
+      FOR UPDATE
+    `,
+    [operation.entityId]
+  );
+
+  const currentVersion =
+    current.rows[0]?.version ?? null;
+
+  if (currentVersion === null) {
+    throw new PatientVersionConflictError(
+      operation.entityId,
+      'missing-patient',
+      incomingVersion,
+      null,
+      null
+    );
+  }
+
+  const expectedVersion = currentVersion + 1;
+
+  if (incomingVersion !== expectedVersion) {
+    throw new PatientVersionConflictError(
+      operation.entityId,
+      incomingVersion <= currentVersion
+        ? 'stale-version'
+        : 'version-gap',
+      incomingVersion,
+      currentVersion,
+      expectedVersion
+    );
+  }
+
+  const result = await client.query(
+    `
+      UPDATE patients
+      SET
+        source_system = $2,
+        source_record_id = $3,
+        family_serial_no = $4,
+        phic_no = $5,
+        last_name = $6,
+        first_name = $7,
+        middle_name = $8,
+        suffix = $9,
+        birth_date = $10,
+        sex = $11,
+        civil_status = $12,
+        place_of_birth = $13,
+        religion = $14,
+        educational_attainment = $15,
+        contact_number = $16,
+        address_line = $17,
+        purok = $18,
+        barangay = $19,
+        municipality_city = $20,
+        province = $21,
+        district = $22,
+        phic_membership_category = $23,
+        phic_membership_type = $24,
+        employment_status = $25,
+        occupation = $26,
+        spouse_name = $27,
+        spouse_birth_date = $28,
+        spouse_occupation = $29,
+        member_maiden_name = $30,
+        father_name = $31,
+        family_position = $32,
+        version = $33,
+        updated_at = $34
+      WHERE id = $1
+        AND version = $35
+    `,
+    [
+      operation.entityId,
+      optionalString(p, 'sourceSystem'),
+      optionalString(p, 'sourceRecordId'),
+      optionalString(p, 'familySerialNo'),
+      optionalString(p, 'phicNo'),
+      requiredString(p, 'lastName'),
+      requiredString(p, 'firstName'),
+      optionalString(p, 'middleName'),
+      optionalString(p, 'suffix'),
+      requiredString(p, 'birthDate'),
+      requiredString(p, 'sex'),
+      optionalString(p, 'civilStatus'),
+      optionalString(p, 'placeOfBirth'),
+      optionalString(p, 'religion'),
+      optionalString(p, 'educationalAttainment'),
+      optionalString(p, 'contactNumber'),
+      optionalString(p, 'addressLine'),
+      optionalString(p, 'purok'),
+      optionalString(p, 'barangay'),
+      optionalString(p, 'municipalityCity'),
+      optionalString(p, 'province'),
+      optionalString(p, 'district'),
+      optionalString(p, 'phicMembershipCategory'),
+      optionalString(p, 'phicMembershipType'),
+      optionalString(p, 'employmentStatus'),
+      optionalString(p, 'occupation'),
+      optionalString(p, 'spouseName'),
+      optionalString(p, 'spouseBirthDate'),
+      optionalString(p, 'spouseOccupation'),
+      optionalString(p, 'memberMaidenName'),
+      optionalString(p, 'fatherName'),
+      optionalString(p, 'familyPosition'),
+      incomingVersion,
+      requiredString(p, 'updatedAt'),
+      currentVersion,
+    ]
+  );
+
+  if (result.rowCount !== 1) {
+    throw new PatientVersionConflictError(
+      operation.entityId,
+      'stale-version',
+      incomingVersion,
+      currentVersion,
+      expectedVersion
+    );
+  }
+}
+
 async function applyEncounterCreate(
   client: PoolClient,
   operation: SyncOperationInput
@@ -513,15 +675,6 @@ export async function applySyncMutation(
   client: PoolClient,
   operation: SyncOperationInput
 ): Promise<void> {
-  if (
-    operation.operationType !==
-    'create'
-  ) {
-    throw new InvalidSyncOperationError(
-      `Operation type ${operation.operationType} is not implemented yet.`
-    );
-  }
-
   const payload = asPayload(operation.payload);
   if (requiredString(payload, 'id').toLowerCase() !== operation.entityId.toLowerCase()) {
     throw new InvalidSyncOperationError('Payload id must match entityId.');
@@ -529,6 +682,28 @@ export async function applySyncMutation(
   const version = requiredNumber(payload, 'version');
   if (!Number.isInteger(version) || version < 1 || version > 2147483647) {
     throw new InvalidSyncOperationError('Payload version must be a positive PostgreSQL integer.');
+  }
+
+  if (operation.operationType === 'update') {
+    if (operation.entityType !== 'patient') {
+      throw new InvalidSyncOperationError(
+        `Update is not implemented for entity type ${operation.entityType}.`
+      );
+    }
+
+    await applyPatientUpdate(
+      client,
+      operation,
+      payload,
+      version
+    );
+    return;
+  }
+
+  if (operation.operationType !== 'create') {
+    throw new InvalidSyncOperationError(
+      `Operation type ${operation.operationType} is not implemented yet.`
+    );
   }
 
   // A child may reference only an encounter belonging to the same patient.
