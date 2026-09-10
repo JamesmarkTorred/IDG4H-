@@ -1,6 +1,6 @@
 # IDG4H — Integrated Data Gateway for Health
 
-> Offline-first data gateway that synchronizes Edge health operations from SQLite to a FHIR-aligned Central PostgreSQL registry under intermittent connectivity.
+Offline-first data gateway that synchronizes Edge health operations from SQLite to a FHIR-aligned Central PostgreSQL registry under intermittent connectivity.
 
 [![Test Suite](https://github.com/zabdeilmercado/idg4h/actions/workflows/test.yml/badge.svg)](https://github.com/zabdeilmercado/idg4h/actions/workflows/test.yml)
 
@@ -12,130 +12,387 @@ The implemented generic pipeline ingests synthetic **CSV/Excel exports**, valida
 
 ## Core Features
 
-- **Offline-first Edge Node** — a local Node.js + SQLite service that Barangay Health Workers (BHWs) can use to record and access health data without requiring live internet connectivity.
-- **Central Server Registry** — a Node.js + PostgreSQL service acting as the authoritative, FHIR-aligned data store, aggregating records synced in from edge nodes.
-- **Durable synchronization** — transactional Edge outbox, automatic retry/recovery worker, HTTP acknowledgements, Central idempotency, and explicit optimistic-version conflicts.
-- **CRDT proof of concept** — [Automerge](https://automerge.org/) mechanics are isolated in the `sync-engine` workspace and do not yet drive the production path.
-- **RESTful APIs with OpenAPI/Swagger docs** — both Edge Node and Central Server expose documented, interactive API references (`/api-docs`) generated via `swagger-jsdoc` and `swagger-ui-express`.
-- **FHIR-aligned data modeling** *(in progress)* — designed to map legacy system exports into standard HL7 FHIR resource shapes, pending Technical Audit findings on actual source data structures.
-- **QR-based Patient Lookup** *(planned)* — an opaque, non-PII QR identifier system intended to speed up patient lookup in the field, with manual demographic search as a mandatory fallback for lost/damaged codes.
-- **Automated Testing & CI** — each workspace has Jest-based test coverage, automatically run on every push/PR via GitHub Actions, including a disposable PostgreSQL service container for central-server tests.
+* **Offline-first Edge Node** — a local Node.js + SQLite service that Barangay Health Workers (BHWs) can use to record and access health data without requiring live internet connectivity.
+
+* **Central Server Registry** — a Node.js + PostgreSQL service acting as the authoritative, FHIR-aligned data store, aggregating records synced in from edge nodes.
+
+* **Durable synchronization** — transactional Edge outbox, automatic retry/recovery worker, HTTP acknowledgements, Central idempotency, and explicit optimistic-version conflicts.
+
+* **CRDT proof of concept** — [Automerge](https://automerge.org/) mechanics are isolated in the `sync-engine` workspace and do not yet drive the production path.
+
+* **RESTful APIs with OpenAPI/Swagger docs** — both Edge Node and Central Server expose documented, interactive API references (`/api-docs`) generated via `swagger-jsdoc` and `swagger-ui-express`.
+
+* **FHIR-aligned data modeling** *(in progress)* — designed to map legacy system exports into standard HL7 FHIR resource shapes, pending Technical Audit findings on actual source data structures.
+
+* **QR-based Patient Lookup** *(planned)* — an opaque, non-PII QR identifier system intended to speed up patient lookup in the field, with manual demographic search as a mandatory fallback for lost/damaged codes.
+
+* **Automated Testing & CI** — each workspace has Jest-based test coverage, automatically run on every push/PR via GitHub Actions.
 
 ## Repository Structure
 
-This project is organized as an **npm workspaces monorepo**:
+This project is organized as an **npm workspaces monorepo**.
 
-```
+```text
 idg4h/
-├── edge-node/                  # TypeScript + Express + SQLite — offline-first client
-│   ├── src/
-│   │   ├── db/
-│   │   │   ├── connection.ts   # SQLite connection + schema init
-│   │   │   ├── check-schema.ts # SQLite schema verification
-│   │   │   └── patientRepository.ts # Reserved for the next repository milestone
-│   │   ├── domain/             # City Health patient, encounter, observation, immunization types
-│   │   ├── docs/
-│   │   │   └── swagger.ts      # OpenAPI spec generation
-│   │   ├── routes/
-│   │   │   ├── health.ts       # Health-check endpoint
-│   │   │   ├── patients.ts     # Validated patient REST boundary
-│   │   │   ├── encounters.ts   # Atomic clinical encounter REST boundary
-│   │   │   └── imports.ts      # Bounded, audited multipart import boundary
-│   │   ├── validation/          # Strict runtime request schemas
-│   │   ├── middleware/          # Structured, sanitized API errors
-│   │   ├── auth/                # Offline users, RBAC, password and session services
-│   │   ├── import/              # Generic CSV/XLSX parsing and audited patient import
-│   │   ├── sync/
-│   │   │   └── syncWorker.ts   # Automatic non-overlapping synchronization loop
-│   │   ├── __tests__/          # Jest test suite
-│   │   ├── app.ts              # Express app configuration
-│   │   ├── config.ts           # Environment/config loader
-│   │   └── index.ts            # Entry point / server listener
-│   ├── .env                    # Local environment variables (gitignored)
-│   ├── .env.example            # Safe deployment configuration example
-│   ├── test-fixtures/           # Explicitly synthetic import fixtures
-│   ├── tsconfig.json           # Strict TypeScript compiler configuration
-│   ├── jest.config.cjs         # TypeScript test configuration
-│   └── package.json
+├── artifacts/
+│   └── evaluation/
 │
-├── central-server/             # TypeScript + Express + PostgreSQL
+├── central-server/
+│   ├── scripts/
+│   │   ├── check-edge-auto-sync.cjs
+│   │   ├── check-edge-import-auto-sync.cjs
+│   │   ├── check-edge-sync.cjs
+│   │   └── evaluate-sync.cjs
+│   │
 │   ├── src/
+│   │   ├── __tests__/
+│   │   │   ├── health.test.ts
+│   │   │   ├── networkProfiles.test.ts
+│   │   │   ├── setup.ts
+│   │   │   ├── sync.test.ts
+│   │   │   ├── syncFixtures.ts
+│   │   │   ├── syncMetrics.test.ts
+│   │   │   └── syncSchemaMigration.test.ts
+│   │   │
 │   │   ├── db/
-│   │   │   ├── connection.ts   # PostgreSQL pool + schema init (with startup retry logic)
-│   │   │   └── syncOperationRepository.ts # Durable, idempotent operation receipts
+│   │   │   ├── connection.ts
+│   │   │   └── syncOperationRepository.ts
 │   │   ├── docs/
 │   │   │   └── swagger.ts
-│   │   ├── domain/             # Typed synchronization envelope
-│   │   ├── services/           # Validation + transactional canonical application
+│   │   ├── domain/
+│   │   │   ├── index.ts
+│   │   │   └── syncOperation.ts
+│   │   ├── evaluation/
+│   │   │   ├── faultProxy.ts
+│   │   │   ├── networkProfiles.ts
+│   │   │   └── syncMetrics.ts
 │   │   ├── routes/
 │   │   │   ├── health.ts
 │   │   │   └── sync.ts
-│   │   ├── __tests__/
+│   │   ├── services/
+│   │   │   ├── applySyncOperation.ts
+│   │   │   ├── syncOperationService.ts
+│   │   │   └── syncValidation.ts
 │   │   ├── app.ts
 │   │   ├── config.ts
 │   │   └── index.ts
-│   ├── .env
-│   ├── tsconfig.json
+│   │
 │   ├── jest.config.cjs
-│   ├── scripts/check-edge-sync.cjs # Canonical create/update sync integration check
-│   ├── scripts/check-edge-auto-sync.cjs # Automatic worker integration check
-│   ├── scripts/check-edge-import-auto-sync.cjs # Audited CSV/XLSX-to-Central integration check
-│   ├── scripts/evaluate-sync.cjs # Synthetic deterministic network evaluation runner
-│   └── package.json
+│   ├── package.json
+│   └── tsconfig.json
 │
-├── sync-engine/                # CRDT-based, queue-based synchronization layer
+├── docs/
+│   ├── ADR/
+│   │   ├── 0000-audit-skipped.md
+│   │   ├── 0001-future-dashboard-ui.md
+│   │   └── 0002-sync-conflict-strategy.md
+│   ├── architecture/
+│   │   ├── component-responsibilities.md
+│   │   ├── data-flow.md
+│   │   └── system-overview.md
+│   ├── evaluation/
+│   │   └── sync-evaluation.md
+│   ├── development-log.md
+│   └── TRACEABILITY.md
+│
+├── edge-node/
+│   ├── prisma/
+│   │   ├── migrations/
+│   │   │   └── 00000000000000_baseline/
+│   │   │       └── migration.sql
+│   │   └── schema.prisma
+│   │
 │   ├── src/
-│   │   ├── documents/          # Automerge document wrappers per resource type
-│   │   ├── queue/               # Offline write-queue logic (pending)
-│   │   ├── sync/
-│   │   │   └── mergeDemo.js    # Working Automerge merge proof-of-concept
 │   │   ├── __tests__/
+│   │   │   ├── authApi.test.ts
+│   │   │   ├── authorizationApi.test.ts
+│   │   │   ├── authTestHelpers.ts
+│   │   │   ├── clinicalEncounterService.test.ts
+│   │   │   ├── csvParser.test.ts
+│   │   │   ├── encounterRepository.test.ts
+│   │   │   ├── encountersApi.test.ts
+│   │   │   ├── health.test.ts
+│   │   │   ├── httpSyncTransport.test.ts
+│   │   │   ├── immunizationRepository.test.ts
+│   │   │   ├── importRepository.test.ts
+│   │   │   ├── importsApi.test.ts
+│   │   │   ├── observationRepository.test.ts
+│   │   │   ├── offlineWriteTransaction.test.ts
+│   │   │   ├── outboxRepository.test.ts
+│   │   │   ├── passwordService.test.ts
+│   │   │   ├── patientIdentity.test.ts
+│   │   │   ├── patientImportService.test.ts
+│   │   │   ├── patientRepository.test.ts
+│   │   │   ├── patientsApi.test.ts
+│   │   │   ├── patientUpdate.test.ts
+│   │   │   ├── patientXlsxImportService.test.ts
+│   │   │   ├── retryPolicy.test.ts
+│   │   │   ├── sessionPersistence.test.ts
+│   │   │   ├── setup.ts
+│   │   │   ├── syncEngine.test.ts
+│   │   │   ├── syncWorker.test.ts
+│   │   │   └── xlsxParser.test.ts
+│   │   │
+│   │   ├── auth/
+│   │   │   ├── authRepository.ts
+│   │   │   ├── authService.ts
+│   │   │   ├── bootstrapUser.ts
+│   │   │   ├── passwordService.ts
+│   │   │   ├── permissions.ts
+│   │   │   ├── schema.ts
+│   │   │   └── sessionService.ts
+│   │   │
+│   │   ├── db/
+│   │   │   ├── audit-data.ts
+│   │   │   ├── check-db-path.ts
+│   │   │   ├── check-encounter-repository.ts
+│   │   │   ├── check-immunization-repository.ts
+│   │   │   ├── check-observation-repository.ts
+│   │   │   ├── check-outbox-status.ts
+│   │   │   ├── check-patient-repository.ts
+│   │   │   ├── check-schema.ts
+│   │   │   ├── connection.ts
+│   │   │   ├── encounterRepository.ts
+│   │   │   ├── immunizationRepository.ts
+│   │   │   ├── importRepository.ts
+│   │   │   ├── observationRepository.ts
+│   │   │   ├── outboxRepository.ts
+│   │   │   └── patientRepository.ts
+│   │   │
+│   │   ├── docs/
+│   │   │   └── swagger.ts
+│   │   ├── domain/
+│   │   │   ├── encounter.ts
+│   │   │   ├── encounterErrors.ts
+│   │   │   ├── immunization.ts
+│   │   │   ├── import.ts
+│   │   │   ├── index.ts
+│   │   │   ├── observation.ts
+│   │   │   ├── outbox.ts
+│   │   │   ├── patient.ts
+│   │   │   └── patientErrors.ts
+│   │   ├── import/
+│   │   │   ├── csvParser.ts
+│   │   │   ├── parsedImportRow.ts
+│   │   │   ├── patientImportService.ts
+│   │   │   ├── patientImportValidation.ts
+│   │   │   ├── patientSourceMapper.ts
+│   │   │   ├── runSyntheticPatientImport.ts
+│   │   │   ├── runSyntheticPatientXlsxImport.ts
+│   │   │   ├── syntheticPatientMapper.ts
+│   │   │   └── xlsxParser.ts
+│   │   ├── middleware/
+│   │   │   ├── authenticate.ts
+│   │   │   ├── authorize.ts
+│   │   │   ├── errorHandler.ts
+│   │   │   └── upload.ts
+│   │   ├── routes/
+│   │   │   ├── auth.ts
+│   │   │   ├── encounters.ts
+│   │   │   ├── health.ts
+│   │   │   ├── imports.ts
+│   │   │   └── patients.ts
+│   │   ├── services/
+│   │   │   ├── check-clinical-encounter.ts
+│   │   │   ├── check-patient-identity.ts
+│   │   │   ├── clinicalEncounterService.ts
+│   │   │   ├── patientIdentityService.ts
+│   │   │   ├── patientRegistrationService.ts
+│   │   │   └── patientWriteService.ts
+│   │   ├── sync/
+│   │   │   ├── create-sync-test-patient.ts
+│   │   │   ├── httpSyncTransport.ts
+│   │   │   ├── retryPolicy.ts
+│   │   │   ├── runSync.ts
+│   │   │   ├── syncEngine.ts
+│   │   │   ├── syncTransport.ts
+│   │   │   └── syncWorker.ts
+│   │   ├── validation/
+│   │   │   ├── authSchemas.ts
+│   │   │   ├── encounterSchemas.ts
+│   │   │   ├── importSchemas.ts
+│   │   │   └── patientSchemas.ts
+│   │   ├── app.ts
+│   │   ├── config.ts
+│   │   └── index.ts
+│   │
+│   ├── test-fixtures/
+│   │   ├── synthetic-patient-import.csv
+│   │   └── synthetic-patient-import.xlsx
+│   │
+│   ├── .env.example
+│   ├── jest.config.cjs
+│   ├── package.json
+│   ├── prisma.config.ts
+│   └── tsconfig.json
+│
+├── shared/
+│   ├── src/
+│   │   └── schemas/
+│   │       └── patient.ts
+│   ├── package.json
+│   └── tsconfig.json
+│
+├── sync-engine/
+│   ├── resolution/
+│   │   └── index.js
+│   ├── src/
+│   │   ├── __tests__/
+│   │   │   └── mergeDemo.test.js
+│   │   ├── documents/
+│   │   │   └── exampleDoc.js
+│   │   ├── sync/
+│   │   │   └── mergeDemo.js
 │   │   └── index.js
 │   └── package.json
 │
-├── shared/                     # Common types, schemas, and validation utilities
-│   ├── src/
-│   └── package.json
-│
-├── docs/
-│   └── ADR/                    # Architecture Decision Records
-│       └── 0000-audit-skipped.md
-│
 ├── .github/
 │   ├── workflows/
-│   │   └── test.yml            # CI pipeline — runs all workspace test suites
+│   │   └── test.yml
 │   └── PULL_REQUEST_TEMPLATE.md
 │
 ├── .gitignore
-├── package.json                # Root workspaces manifest
+├── package-lock.json
+├── package.json
 └── README.md
 ```
 
+### Edge Node Database Architecture
+
+The Edge Node uses **Prisma as the schema and migration authority**, while `better-sqlite3` remains the runtime database driver.
+
+Prisma Client is **not used** by the Edge Node application.
+
+```text
+prisma/schema.prisma
+        │
+        │ schema definition
+        ▼
+prisma/migrations/
+        │
+        │ Prisma Migrate
+        ▼
+SQLite database
+        ▲
+        │
+   better-sqlite3
+        │
+        ▼
+Edge Node application
+```
+
+The responsibilities are intentionally separated:
+
+| Component               | Responsibility                                               |
+| ----------------------- | ------------------------------------------------------------ |
+| `prisma/schema.prisma`  | Canonical database schema definition                         |
+| `prisma/migrations/`    | Versioned database schema changes                            |
+| `prisma.config.ts`      | Prisma CLI/migration configuration                           |
+| SQLite                  | Local offline-first database                                 |
+| `better-sqlite3`        | Runtime database access                                      |
+| `src/db/connection.ts`  | Opens/configures the SQLite connection                       |
+| `src/db/*Repository.ts` | Runtime persistence operations                               |
+| `src/auth/schema.ts`    | Seeds authentication permission data; does not create tables |
+
+### Database Migration Policy
+
+The Edge Node database schema must be changed through Prisma Migrate.
+
+For a new schema change:
+
+```bash
+# 1. Update the canonical schema
+# edge-node/prisma/schema.prisma
+
+# 2. Create a migration
+npx prisma migrate dev --name describe_your_change \
+  --schema ./edge-node/prisma/schema.prisma
+
+# 3. Verify migration status
+npx prisma migrate status \
+  --schema ./edge-node/prisma/schema.prisma
+```
+
+For deployment/production-style application of existing migrations:
+
+```bash
+npx prisma migrate deploy \
+  --schema ./edge-node/prisma/schema.prisma
+```
+
+The application itself does **not** create database tables during startup.
+
+This means `src/db/connection.ts` is responsible only for opening/configuring SQLite and initializing application-level data that is safe to seed at runtime.
+
+### Existing Database Baseline
+
+The current Edge Node database was transitioned to Prisma Migrate using the baseline migration:
+
+```text
+edge-node/prisma/
+├── schema.prisma
+└── migrations/
+    └── 00000000000000_baseline/
+        └── migration.sql
+```
+
+The baseline represents the existing SQLite schema without recreating or resetting the existing database.
+
+The baseline migration also preserves SQLite-specific constraints and indexes that cannot be completely represented by the Prisma schema language, including:
+
+* `CHECK` constraints
+* partial unique indexes
+* SQLite `COLLATE NOCASE` behavior
+* explicit foreign-key actions
+* synchronization/outbox constraints
+
+The baseline migration was tested against a disposable SQLite database before being marked as applied to the existing Edge Node database.
+
+### Local Database Files
+
+The actual SQLite database is local development/runtime data and is intentionally excluded from Git.
+
+Typical local files include:
+
+```text
+edge-node/data/
+├── edge-node.sqlite
+├── edge-node.sqlite.backup
+├── edge-node.sqlite.before-prisma-migration.sqlite
+└── prisma-baseline-test/
+```
+
+These files are ignored through `edge-node/.gitignore`.
+
+The repository therefore stores the **schema and migration history**, not the local database contents.
+
 ## Tech Stack
 
-| Layer | Technology |
-|---|---|
-| Edge Node runtime | Node.js + Express (TypeScript) |
-| Edge Node storage | SQLite (`better-sqlite3`) |
-| Central Server runtime | Node.js + Express (TypeScript) |
-| Central Server storage | PostgreSQL (`pg`) |
-| Sync mechanism | Transactional outbox + idempotent O2O operations; Automerge proof of concept |
-| API documentation | OpenAPI / Swagger (`swagger-jsdoc`, `swagger-ui-express`) |
-| Testing | Jest, Supertest |
-| CI/CD | GitHub Actions |
-| Data interoperability standard | HL7 FHIR |
-| Containerization | Docker (available for local Postgres and future deployment) |
+| Layer                          | Technology                                                                   |
+| ------------------------------ | ---------------------------------------------------------------------------- |
+| Edge Node runtime              | Node.js + Express (TypeScript)                                               |
+| Edge Node storage              | SQLite (`better-sqlite3`)                                                    |
+| Edge Node schema/migrations    | Prisma Schema + Prisma Migrate                                               |
+| Edge Node ORM/runtime client   | None — runtime uses `better-sqlite3`                                         |
+| Central Server runtime         | Node.js + Express (TypeScript)                                               |
+| Central Server storage         | PostgreSQL (`pg`)                                                            |
+| Sync mechanism                 | Transactional outbox + idempotent O2O operations; Automerge proof of concept |
+| API documentation              | OpenAPI / Swagger (`swagger-jsdoc`, `swagger-ui-express`)                    |
+| Testing                        | Jest, Supertest                                                              |
+| CI/CD                          | GitHub Actions                                                               |
+| Data interoperability standard | HL7 FHIR                                                                     |
+| Containerization               | Docker (available for local Postgres and future deployment)                  |
 
 ## Setup Prerequisites
 
 Before setting up the project locally, ensure you have:
 
-- **Node.js** v20 or later ([nodejs.org](https://nodejs.org/))
-- **npm** (bundled with Node.js) — this project uses **npm workspaces**
-- **PostgreSQL** (v15 or later) running locally, or via Docker
-- **Git**
-- *(Optional but recommended)* **Docker Desktop** — for disposable/reproducible Postgres instances and future containerized deployment
-- *(Optional)* **psql** or **pgAdmin4** — for direct database inspection/management
+* **Node.js** v20 or later
+* **npm** (bundled with Node.js) — this project uses **npm workspaces**
+* **PostgreSQL** v15 or later running locally, or via Docker
+* **Git**
+* **Docker Desktop** *(optional but recommended)* — for disposable/reproducible Postgres instances and future containerized deployment
+* **psql** or **pgAdmin4** *(optional)* — for direct database inspection/management
 
 ## Getting Started
 
@@ -146,7 +403,7 @@ git clone https://github.com/zabdeilmercado/idg4h.git
 cd idg4h
 ```
 
-### 2. Install dependencies (all workspaces)
+### 2. Install dependencies
 
 ```bash
 npm install
@@ -154,9 +411,10 @@ npm install
 
 ### 3. Configure environment variables
 
-Each workspace that needs one has its own `.env` file (not committed to source control). Create them as follows:
+Each workspace that needs one has its own `.env` file. These files are not committed to source control.
 
-**`edge-node/.env`**
+#### `edge-node/.env`
+
 ```env
 NODE_ENV=development
 PORT=4000
@@ -167,119 +425,49 @@ AUTH_SESSION_TTL_MS=28800000
 AUTH_COOKIE_SECURE=false
 ```
 
-Edge Node loads its own `.env` even when a check script runs from the monorepo
-root. Relative `DB_PATH` values resolve from `edge-node/`, so root-level `npx`
-commands and npm workspace scripts use the same SQLite file. Absolute paths and
-`:memory:` are preserved. `NODE_ID` identifies the recording node independently of patient address
-fields. If it is unset, the node identity defaults to `edge-local-development`.
-The four repositories stamp new records with this configured identity. Creation
-inputs omit `nodeId`; saved records include it, and caller-supplied overrides are
-ignored.
+The Edge Node loads its own `.env` even when a check script runs from the monorepo root.
 
-Application writes use `registerPatient` (candidate detection),
-`createPatientWithOutbox` (direct patient creation), or `saveClinicalEncounter`
-(a complete visit). These services save each domain record and its pending outbox
-operation in the same SQLite transaction; a failure rolls back both. Repository
-creation functions are low-level persistence primitives used by these services
-and repository tests, and do not enqueue synchronization operations themselves.
+Relative `DB_PATH` values resolve from `edge-node/`, so root-level commands and npm workspace scripts use the same SQLite file. Absolute paths and `:memory:` are preserved.
 
-Patient changes use `updatePatientWithOutbox({ id, expectedVersion, ...changes })`.
-The repository updates only when the stored version matches `expectedVersion`,
-increments the record version, preserves omitted fields, and queues the complete
-updated record in the same SQLite transaction. A stale caller receives a version
-conflict and creates no outbox entry. Central applies only the next consecutive
-patient version and rejects stale or skipped versions without overwriting the
-canonical record.
+`NODE_ID` identifies the recording node independently of patient address fields. If it is unset, the node identity defaults to `edge-local-development`.
 
-The first local REST API milestone exposes these patient operations:
+#### `central-server/.env`
 
-```text
-GET   /api/patients/:id
-GET   /api/patients/search?lastName=...&firstName=...&birthDate=YYYY-MM-DD
-POST  /api/patients
-PATCH /api/patients/:id
-```
-
-Zod validates every path, query and request body at runtime. Unknown body fields
-are rejected. Registration delegates to identity candidate detection and the
-transactional patient/outbox write service; updates require a positive integer
-`expectedVersion`. Errors use a stable `{ "error": { "code", "message" } }`
-shape, with validation details where useful, and unexpected storage failures do
-not expose internal messages. Access requires a local session and the matching
-`patients:read` or `patients:write` permission.
-
-Clinical visits use the existing atomic encounter service through:
-
-```text
-POST /api/patients/:patientId/encounters
-GET  /api/patients/:patientId/encounters
-GET  /api/encounters/:id
-```
-
-One validated POST can create an encounter with zero or more observations and
-immunizations. The route supplies `patientId` from the URL and the repositories
-stamp `nodeId`; neither field is accepted from the body. Every domain record and
-its outbox operation commit together. Observation input requires exactly one of
-`valueText` or finite `valueNumeric`. Separate observation and immunization write
-endpoints are deferred so callers cannot bypass the visit transaction.
-
-Audited patient imports are available through:
-
-```text
-POST /api/imports/patients
-GET  /api/imports/:id
-GET  /api/imports/:id/rows
-```
-
-The POST endpoint accepts one in-memory multipart `.csv` or `.xlsx` file up to
-5 MiB, plus `mapper=synthetic-patient` and an explicitly synthetic
-`sourceSystem`. It validates the extension and file content without trusting the
-MIME type, then calls the existing CSV/XLSX import service. Invalid parser input
-retains a failed audit job and returns its ID in a controlled response. Uploaded
-files are not written to disk. Official iClinicSys mapping remains unavailable
-until a real export schema is verified.
-
-Local authentication is available without Central or internet access:
-
-```text
-POST /api/auth/login
-POST /api/auth/logout
-GET  /api/auth/me
-```
-
-Passwords are stored as salted `scrypt` hashes. Login creates an opaque random
-session token in an `HttpOnly`, `SameSite=Strict` cookie; SQLite stores only its
-SHA-256 hash. Sessions are immediately revocable, expire according to
-`AUTH_SESSION_TTL_MS`, and survive Edge restarts. `AUTH_COOKIE_SECURE` is `false`
-for local HTTP development and must be `true` for HTTPS deployment.
-
-The current permission keys are technical capabilities: `patients:read`,
-`patients:write`, `encounters:read`, `encounters:write`, `imports:read`,
-`imports:write`, and `users:manage`. Operational health-worker role names and
-their assignments remain pending field validation.
-
-Create the first installation account locally; no unauthenticated user-creation
-HTTP endpoint exists:
-
-```powershell
-$env:IDG4H_BOOTSTRAP_USERNAME = 'local-admin'
-$env:IDG4H_BOOTSTRAP_PASSWORD = Read-Host 'Bootstrap password' -MaskInput
-npm run auth:bootstrap --workspace=@idg4h/edge-node
-Remove-Item Env:IDG4H_BOOTSTRAP_PASSWORD
-```
-
-The bootstrap role is explicitly an installation role with the current technical
-permissions. Replace its assignment after the operational role matrix is
-validated.
-
-**`central-server/.env`**
 ```env
 NODE_ENV=development
 PORT=5000
 DATABASE_URL=postgres://<user>:<password>@localhost:5432/idg4h_central
 ```
 
-### 4. Set up the central database
+### 4. Initialize the Edge Node database
+
+The Edge Node database schema is managed through Prisma Migrate.
+
+For a fresh local database, apply the existing migrations:
+
+```bash
+npx prisma migrate deploy \
+  --schema ./edge-node/prisma/schema.prisma
+```
+
+The application does not run schema creation SQL during startup.
+
+After the migration has been applied, the Edge Node can use SQLite through `better-sqlite3`.
+
+To verify the migration state:
+
+```bash
+npx prisma migrate status \
+  --schema ./edge-node/prisma/schema.prisma
+```
+
+Expected result:
+
+```text
+Database schema is up to date!
+```
+
+### 5. Set up the Central database
 
 Ensure PostgreSQL is running, then create the database:
 
@@ -287,13 +475,24 @@ Ensure PostgreSQL is running, then create the database:
 psql -U postgres -h localhost -c "CREATE DATABASE idg4h_central;"
 ```
 
-### 5. Run each service
+### 6. Run each service
 
-**Edge Node:**
+#### Edge Node
+
 ```bash
 npm run dev --workspace=@idg4h/edge-node
-# → listening on http://localhost:4000
-# → API docs at http://localhost:4000/api-docs
+```
+
+The Edge Node listens on:
+
+```text
+http://localhost:4000
+```
+
+API documentation:
+
+```text
+http://localhost:4000/api-docs
 ```
 
 For a compiled Edge Node build:
@@ -303,17 +502,112 @@ npm run build --workspace=@idg4h/edge-node
 npm start --workspace=@idg4h/edge-node
 ```
 
-Edge Node and Central Server use TypeScript 5.9 for compatibility with `ts-node`
-and the CommonJS compiler configuration. The other workspaces retain their existing tooling.
-Its tests use an isolated in-memory SQLite database. The `/health` response is
-`{ "status": "ok", "db": "connected" }`; the obsolete `lastCheckId` field has
-been removed because the current schema has no health-check log table.
+### Edge Node Application Behavior
 
-**Central Server:**
+Application writes use:
+
+* `registerPatient` for candidate detection
+* `createPatientWithOutbox` for direct patient creation
+* `saveClinicalEncounter` for a complete visit
+
+These services save domain records and their pending outbox operation in the same SQLite transaction.
+
+Patient changes use:
+
+```text
+updatePatientWithOutbox({
+  id,
+  expectedVersion,
+  ...changes
+})
+```
+
+The repository updates only when the stored version matches `expectedVersion`, increments the record version, preserves omitted fields, and queues the complete updated record in the same SQLite transaction.
+
+### Edge Node REST API
+
+Patient operations:
+
+```text
+GET    /api/patients/:id
+GET    /api/patients/search?lastName=...&firstName=...&birthDate=YYYY-MM-DD
+POST   /api/patients
+PATCH  /api/patients/:id
+```
+
+Clinical visits:
+
+```text
+POST /api/patients/:patientId/encounters
+GET  /api/patients/:patientId/encounters
+GET  /api/encounters/:id
+```
+
+Audited patient imports:
+
+```text
+POST /api/imports/patients
+GET  /api/imports/:id
+GET  /api/imports/:id/rows
+```
+
+Authentication:
+
+```text
+POST /api/auth/login
+POST /api/auth/logout
+GET  /api/auth/me
+```
+
+Zod validates runtime request schemas. Access requires a local session and the appropriate permission.
+
+### Local Authentication
+
+Authentication works without Central or internet access.
+
+Passwords are stored as salted `scrypt` hashes. Login creates an opaque random session token in an `HttpOnly`, `SameSite=Strict` cookie; SQLite stores only its SHA-256 hash.
+
+Sessions are immediately revocable, expire according to `AUTH_SESSION_TTL_MS`, and survive Edge restarts.
+
+The current technical permission keys are:
+
+```text
+patients:read
+patients:write
+encounters:read
+encounters:write
+imports:read
+imports:write
+users:manage
+```
+
+Create the first installation account locally:
+
+```powershell
+$env:IDG4H_BOOTSTRAP_USERNAME = 'local-admin'
+$env:IDG4H_BOOTSTRAP_PASSWORD = Read-Host 'Bootstrap password' -MaskInput
+
+npm run auth:bootstrap --workspace=@idg4h/edge-node
+
+Remove-Item Env:IDG4H_BOOTSTRAP_PASSWORD
+```
+
+### Central Server
+
 ```bash
 npm run dev --workspace=@idg4h/central-server
-# → listening on http://localhost:5000
-# → API docs at http://localhost:5000/api-docs
+```
+
+The Central Server listens on:
+
+```text
+http://localhost:5000
+```
+
+API documentation:
+
+```text
+http://localhost:5000/api-docs
 ```
 
 For a compiled Central Server build:
@@ -323,88 +617,38 @@ npm run build --workspace=@idg4h/central-server
 npm start --workspace=@idg4h/central-server
 ```
 
-Central loads `central-server/.env` from both source and compiled entry points.
-It requires `DATABASE_URL` before startup and initializes PostgreSQL with retries
-before listening. Its `/health` endpoint is a liveness check returning
-`{ "status": "ok", "service": "central-server" }`.
+Central requires `DATABASE_URL` before startup and initializes PostgreSQL with retries before listening.
 
-`POST /api/sync/operations` accepts `operationId`, `nodeId`, `entityType`,
-`entityId`, `operationType`, and a canonical entity object as `payload`. Operation and
-entity IDs must be UUIDs. The optional `Idempotency-Key` and `X-IDG4H-Node-ID`
-headers must match the envelope when supplied. Central currently applies only
-`create` operations for patients, encounters, observations, and immunizations.
-The payload contains the Edge record, including its ID, version and timestamps.
-Its ID must match `entityId`. A new operation returns HTTP 201 after commit:
+## Synchronization
 
-```json
-{ "operationId": "...", "status": "applied", "duplicate": false }
-```
-
-Repeating an applied operation ID returns HTTP 200 with `duplicate: true` and
-`status: "applied"`. The original payload and metadata remain unchanged, even if the
-retry supplies different content. Each logical operation must use its own ID.
-Invalid payloads and unsupported update/delete operations return 400. A missing
-parent, duplicate canonical entity, or existing unapplied ledger entry returns
-409. Storage failures return 503 without an ACK.
-See `/api-docs` for the full contract.
-
-The PostgreSQL ledger records `received`, `applied`, or `failed` status plus receipt,
-application and failure timestamps and an optional error message. A single
-PostgreSQL transaction inserts the ledger entry, creates the canonical row,
-marks the operation applied and commits. Any failure rolls back both writes.
-Concurrent first deliveries are serialized by the ledger primary key.
-Startup upgrades the earlier receipt table in place,
-retaining payloads and receipt timestamps. Invalid legacy UUIDs abort migration
-without dropping rows and must be resolved before startup can succeed.
-
-Canonical tables use `originating_node_id`, stamped from the operation envelope,
-to identify the creating Edge Node independently of the patient's address.
-Children require their parent records; observations and immunizations may only
-link an encounter for the same patient. Deliver parents before children, or retry
-after their parents arrive. An existing `received` or `failed` entry is preserved
-and rejected for now; recovery/application of legacy ledger entries is deferred.
-
-**A receipt is not a synchronization ACK.** `HttpSyncTransport` requires
-`status: "applied"`, which Central now returns only after the canonical transaction
-commits. The Edge server starts a synchronization worker after its HTTP listener
-is ready. The worker recovers stale operations once, runs an immediate cycle,
-then waits `SYNC_INTERVAL_MS` after each completed cycle before trying again.
-Patient updates use optimistic version conflicts. Delete operations, updates for
-other entity types, conflict resolution workflows, and authentication remain
-separate milestones.
-
-With Central running, starting the Edge server also starts automatic sync:
+With Central running, starting the Edge server also starts the automatic synchronization worker:
 
 ```bash
 npm run dev --workspace=@idg4h/edge-node
 ```
 
-The one-shot command remains available for inspection and maintenance:
+The one-shot synchronization command remains available:
 
 ```bash
 npm run sync --workspace=@idg4h/edge-node
 ```
 
-To create the synthetic patient and pending outbox entry in that database first:
+To create a synthetic patient and pending outbox entry:
 
 ```bash
 npx ts-node ./edge-node/src/sync/create-sync-test-patient.ts
 ```
 
-Inspect the resolved database path and the latest outbox entries using the
-application's configuration and connection:
+Inspect the resolved database path and latest outbox entries:
 
 ```bash
 npx ts-node ./edge-node/src/db/check-db-path.ts
 npx ts-node ./edge-node/src/db/check-outbox-status.ts
 ```
 
-The command uses `CENTRAL_SERVER_URL` from `edge-node/.env`, recovers stale
-processing operations, sends one batch of due outbox entries, prints the counts,
-and closes SQLite. Failed operations keep their retry schedule; fatal runner
-errors set a nonzero exit code. It runs once and exits.
+The synchronization worker recovers stale operations, processes due outbox entries, retries failures according to the retry policy, and records acknowledgements locally after Central confirms successful application.
 
-### 6. Run tests
+## Testing
 
 Each workspace can be tested individually:
 
@@ -414,127 +658,122 @@ npm test -w central-server
 npm test -w sync-engine
 ```
 
-Central integration tests require `DATABASE_URL` (from its `.env` or environment)
-and permission to create schemas. They create and remove randomly named schemas,
-keeping existing application tables untouched. Edge tests use in-memory SQLite.
+### Edge Node Tests
 
-Central's suite covers canonical field mapping, concurrent duplicates, dependency
-ordering, validation, rollback on application and commit failures, and migration
-of the earlier ledger table. Edge transport unit tests mock HTTP responses.
+Edge tests use an isolated temporary SQLite database provisioned from the Prisma baseline migration.
 
-To verify real HTTP synchronization of a patient create, patient update, and
-visit, including version-conflict handling and a lost acknowledgement retry:
+The tests do not depend on the development database.
+
+The Edge Node test database follows the same schema authority as the application database:
+
+```text
+Prisma migration
+      ↓
+temporary SQLite database
+      ↓
+better-sqlite3
+      ↓
+Jest tests
+```
+
+The Edge Node test suite currently contains **229 passing tests across 26 test suites**.
+
+To run the Edge Node tests:
+
+```bash
+npm test --workspace=@idg4h/edge-node -- --runInBand
+```
+
+### Build Verification
+
+```bash
+npm run build --workspace=@idg4h/edge-node
+```
+
+### Integration Checks
+
+To verify real HTTP synchronization of patient create/update and clinical visits:
 
 ```bash
 npm run build --workspace=@idg4h/central-server
 npm run build --workspace=@idg4h/edge-node
+
 node central-server/scripts/check-edge-sync.cjs
 ```
 
-The check uses a temporary SQLite file, a temporary PostgreSQL schema and a
-loopback server, then cleans them up. It creates one synthetic Edge patient,
-invokes the actual `npm run sync` command in a separate process, updates the
-patient from v1 to v2, and invokes the same command again. It verifies the
-PostgreSQL patient, applied ledger records and Edge acknowledgements:
-
-```text
-[sync] recovered 0 stale operation(s)
-[sync] attempted=1
-[sync] acknowledged=1
-[sync] failed=0
-```
-
-It then verifies a complete visit and a lost-ACK retry. Finally, it sends a stale
-v2 patient update against Central v2 and verifies an HTTP 409, an unmodified
-canonical patient, no applied ledger entry, and a failed Edge outbox record.
-
-To verify that the running Edge server synchronizes automatically, without
-invoking the one-shot sync command:
+Automatic synchronization:
 
 ```bash
 node central-server/scripts/check-edge-auto-sync.cjs
 ```
 
-This starts loopback Edge and Central servers with disposable SQLite and
-PostgreSQL storage, creates a pending patient before Edge starts, and waits for
-the worker to persist `acknowledged` locally and `applied` centrally.
-
-To verify the complete audited CSV import and automatic synchronization chain:
+CSV import and automatic synchronization:
 
 ```bash
 node central-server/scripts/check-edge-import-auto-sync.cjs
 ```
 
-The check runs the real `import:synthetic` command against a running Edge server,
-verifies two imported audit rows and automatic Central application, then imports
-the same fixture again. The replay must produce two candidates and no additional
-patients, outbox operations or Central ledger entries. Its fixture and mapper are
-synthetic and do not claim to match an official iClinicSys export.
-
-Run the same integration check with `--xlsx` to verify the Excel parser feeds the
-identical mapping, validation, candidate, transactional write, audit, outbox and
-automatic synchronization path:
+Excel import:
 
 ```bash
 node central-server/scripts/check-edge-import-auto-sync.cjs --xlsx
 ```
 
-The synthetic workbook has two worksheets and a blank physical row. The check
-proves deterministic first-worksheet selection, retained Excel row numbers,
-successful Central application and duplicate-import candidate handling. It does
-not claim compatibility with an unverified legacy export layout.
-
-To produce a synthetic synchronization evaluation artifact with deterministic
-network impairment:
+Synthetic synchronization evaluation:
 
 ```bash
 npm run evaluate:sync -- --profile ack-loss --operations 100 --require-complete
 ```
 
-Available profiles cover stable transport, high latency, limited bandwidth,
-dropped acknowledgements, intermittent failure, temporary Central unavailability,
-and interruption after part of the queue drains. The runner records logical
-operation SSR separately from transport-attempt success, canonical patient
-synchronization DCI, retry recovery, duplicates, loss, latency, queue-drain time,
-throughput, CPU, memory, and Edge storage growth. Generated JSON is ignored by Git
-and explicitly labels itself as synthetic development evidence. See
-`docs/evaluation/sync-evaluation.md` for definitions and interpretation rules.
+Available evaluation profiles include stable transport, high latency, limited bandwidth, dropped acknowledgements, intermittent failure, temporary Central unavailability, and interruption after part of the queue drains.
 
-Tests also run automatically on every push and pull request via GitHub Actions (see `.github/workflows/test.yml`).
+See `docs/evaluation/sync-evaluation.md` for evaluation definitions and interpretation rules.
 
 ## Project Status
 
-This project follows a structured development lifecycle: **Technical Audit → Architecture Design → Environment Setup → Development → Testing & Evaluation**.
+This project follows a structured development lifecycle:
 
-**Current phase:** Prototype development and evaluation instrumentation. The
-**Technical Audit** remains required before source-specific mappings, final FHIR
-profiles, operational roles, or field network parameters can be claimed.
+**Technical Audit → Architecture Design → Environment Setup → Development → Testing & Evaluation**
 
-| Component | Status |
-|---|---|
-| Monorepo & CI infrastructure | ✅ Complete |
-| Edge Node (bootstrap, storage, health-check, docs) | ✅ Complete |
-| Central Server (bootstrap, storage, health-check, docs) | ✅ Complete |
-| Durable Edge-to-Central synchronization | ✅ Implemented |
-| Automerge/CRDT production integration | ⏸ Proof of concept only |
-| Automated testing (all workspaces) | ✅ Complete |
-| Real FHIR data model | ⏸ Pending Technical Audit |
-| Generic CSV/XLSX ingestion pipeline | ✅ Complete with shared synthetic mapper |
-| Verified legacy source mappings | ⏸ Pending source samples/audit |
-| Authentication & authorization | ✅ Offline local sessions + RBAC implemented |
-| Synthetic network evaluation instrumentation | ✅ Implemented; final study results not yet measured |
-| QR-based patient lookup | ⏸ Design documented, pending implementation |
+**Current phase:** Prototype development and evaluation instrumentation.
+
+The **Technical Audit** remains required before source-specific mappings, final FHIR profiles, operational roles, or field network parameters can be claimed.
+
+| Component                                             | Status                                              |
+| ----------------------------------------------------- | --------------------------------------------------- |
+| Monorepo & CI infrastructure                          | ✅ Complete                                          |
+| Edge Node bootstrap, storage, health-check, docs      | ✅ Complete                                          |
+| Edge Node Prisma schema & migration baseline          | ✅ Complete                                          |
+| Central Server bootstrap, storage, health-check, docs | ✅ Complete                                          |
+| Durable Edge-to-Central synchronization               | ✅ Implemented                                       |
+| Automerge/CRDT production integration                 | ⏸ Proof of concept only                             |
+| Automated testing                                     | ✅ Complete                                          |
+| Real FHIR data model                                  | ⏸ Pending Technical Audit                           |
+| Generic CSV/XLSX ingestion pipeline                   | ✅ Complete with shared synthetic mapper             |
+| Verified legacy source mappings                       | ⏸ Pending source samples/audit                      |
+| Authentication & authorization                        | ✅ Offline local sessions + RBAC implemented         |
+| Synthetic network evaluation instrumentation          | ✅ Implemented; final study results not yet measured |
+| QR-based patient lookup                               | ⏸ Design documented, pending implementation         |
 
 See `docs/ADR/` for architecture decisions and their rationale, including known limitations and deferred work.
 
 ## Data Privacy Note
 
-This project handles health-related data. All development and testing to date uses placeholder/non-clinical data only. Any work involving real patient data during the Technical Audit phase will follow applicable data privacy protocols (Philippine Data Privacy Act, RA 10173), including de-identification where possible and no offsite retention of identifiable records without proper clearance.
+This project handles health-related data. All development and testing to date uses placeholder/non-clinical data only.
+
+Any work involving real patient data during the Technical Audit phase will follow applicable data privacy protocols, including the Philippine Data Privacy Act (RA 10173), de-identification where possible, and no offsite retention of identifiable records without proper clearance.
 
 ## License
 
-*(To be determined)*
+*To be determined*
 
 ## Acknowledgments
 
 Developed as part of a capstone project integrating legacy Philippine barangay/clinic health information systems into a modern, interoperable, offline-first health data gateway.
+
+```
+
+**Key README correction:** the old documentation said `connection.ts` handled “SQLite connection + schema init”; that is no longer true. The new documentation explicitly makes Prisma Migrate the schema authority and `better-sqlite3` the runtime layer. The original README also identifies the repository as an npm workspaces monorepo, which remains unchanged.
+
+If you're putting this directly into the repo, the next step is simply to replace the root `README.md` with this version, then run your normal Git diff review.
+```

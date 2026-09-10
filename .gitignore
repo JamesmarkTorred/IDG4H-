@@ -4,6 +4,7 @@ node_modules/
 *.sqlite3
 *.sqlite-wal
 *.sqlite-shm
+edge-node/data/
 dist/
 .DS_Store
 artifacts/evaluation/*.json
