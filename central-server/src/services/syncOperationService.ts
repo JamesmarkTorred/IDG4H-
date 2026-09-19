@@ -1,5 +1,9 @@
-import { pool } from '../db/connection';
-import type { SyncOperationInput, SyncOperationStatus } from '../domain';
+
+import { prisma } from '../db/connection';
+import type {
+  SyncOperationInput,
+  SyncOperationStatus,
+} from '../domain';
 import { applySyncMutation } from './applySyncOperation';
 
 export interface ReceiveSyncOperationResult {
@@ -10,51 +14,91 @@ export interface ReceiveSyncOperationResult {
 
 export class SyncOperationStateError extends Error {}
 
-export async function receiveSyncOperation(input: SyncOperationInput): Promise<ReceiveSyncOperationResult> {
-  const client = await pool.connect();
-  let discardConnection = false;
-  try {
-    await client.query('BEGIN');
+export async function receiveSyncOperation(
+  input: SyncOperationInput,
+): Promise<ReceiveSyncOperationResult> {
+  return prisma.$transaction(async (tx) => {
+    /*
+     * createMany + skipDuplicates gives us the equivalent of:
+     *
+     * INSERT ... ON CONFLICT (operation_id) DO NOTHING
+     *
+     * The operation ID is the idempotency key. PostgreSQL will wait
+     * for a concurrent transaction holding the same unique key before
+     * resolving the conflict.
+     */
+    const inserted = await tx.syncOperation.createMany({
+      data: {
+        operationId: input.operationId,
+        nodeId: input.nodeId,
+        entityType: input.entityType,
+        entityId: input.entityId,
+        operationType: input.operationType,
+        payload: input.payload as object,
+        status: 'received',
+      },
+      skipDuplicates: true,
+    });
 
-    // SELECT FOR UPDATE cannot lock an absent row. The unique insert waits for
-    // a concurrent first delivery to commit or roll back before deciding ownership.
-    const inserted = await client.query<{ operation_id: string }>(`
-      INSERT INTO sync_operations (
-        operation_id, node_id, entity_type, entity_id, operation_type, payload, status
-      ) VALUES ($1, $2, $3, $4, $5, $6::jsonb, 'received')
-      ON CONFLICT (operation_id) DO NOTHING
-      RETURNING operation_id
-    `, [input.operationId, input.nodeId, input.entityType, input.entityId,
-      input.operationType, JSON.stringify(input.payload)]);
+    /*
+     * The operation already exists.
+     *
+     * At this point, a concurrent insert using the same operation ID
+     * has already resolved its unique-key conflict, so the existing
+     * operation can be read safely inside this transaction.
+     */
+    if (inserted.count === 0) {
+      const existing = await tx.syncOperation.findUnique({
+        where: {
+          operationId: input.operationId,
+        },
+      });
 
-    if (inserted.rowCount === 0) {
-      const existing = await client.query<{ operation_id: string; status: SyncOperationStatus }>(`
-        SELECT operation_id, status FROM sync_operations WHERE operation_id = $1 FOR UPDATE
-      `, [input.operationId]);
-      const row = existing.rows[0];
-      if (!row || row.status !== 'applied') {
-        throw new SyncOperationStateError(`Existing operation is in state ${row?.status ?? 'missing'}.`);
+      if (!existing || existing.status !== 'applied') {
+        throw new SyncOperationStateError(
+          `Existing operation is in state ${
+            existing?.status ?? 'missing'
+          }.`,
+        );
       }
-      await client.query('COMMIT');
-      return { duplicate: true, operationId: row.operation_id, status: 'applied' };
+
+      return {
+        duplicate: true,
+        operationId: existing.operationId,
+        status: 'applied',
+      };
     }
 
-    await applySyncMutation(client, input);
-    await client.query(`
-      UPDATE sync_operations SET status = 'applied', applied_at = NOW(),
-        failed_at = NULL, error_message = NULL WHERE operation_id = $1
-    `, [input.operationId]);
-    await client.query('COMMIT');
-    return { duplicate: false, operationId: inserted.rows[0].operation_id, status: 'applied' };
-  } catch (error) {
-    try {
-      await client.query('ROLLBACK');
-    } catch {
-      // Discard a broken connection rather than returning an aborted transaction.
-      discardConnection = true;
-    }
-    throw error;
-  } finally {
-    client.release(discardConnection);
-  }
+    /*
+     * The operation was newly inserted.
+     *
+     * The canonical entity mutation happens inside the SAME Prisma
+     * transaction as the ledger insert. If the mutation fails,
+     * the ledger insert is rolled back as well.
+     */
+    await applySyncMutation(tx, input);
+
+    /*
+     * Only mark the operation as applied after the canonical mutation
+     * succeeds.
+     */
+    await tx.syncOperation.update({
+      where: {
+        operationId: input.operationId,
+      },
+      data: {
+        status: 'applied',
+        appliedAt: new Date(),
+        failedAt: null,
+        errorMessage: null,
+      },
+    });
+
+    return {
+      duplicate: false,
+      operationId: input.operationId,
+      status: 'applied',
+    };
+  });
 }
+

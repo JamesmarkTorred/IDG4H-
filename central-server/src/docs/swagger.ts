@@ -13,4 +13,6 @@ const options: swaggerJsdoc.Options = {
   apis: [path.join(__dirname, '../routes/*.{ts,js}').replace(/\\/g, '/')],
 };
 
-export default swaggerJsdoc(options);
+const swaggerSpec = swaggerJsdoc(options) as Record<string, any>;
+
+export default swaggerSpec;

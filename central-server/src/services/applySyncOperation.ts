@@ -1,10 +1,6 @@
-import type {
-  PoolClient,
-} from 'pg';
+import type { PrismaClient, Prisma } from '../generated/prisma/client';
 
-import type {
-  SyncOperationInput,
-} from '../domain';
+import type { SyncOperationInput } from '../domain';
 import { InvalidSyncOperationError } from './syncValidation';
 
 export type PatientVersionConflictReason =
@@ -34,16 +30,15 @@ export class PatientVersionConflictError extends Error {
   }
 }
 
+type DatabaseClient = PrismaClient | Prisma.TransactionClient;
+
 function requiredString(
   payload: Record<string, unknown>,
   key: string
 ): string {
   const value = payload[key];
 
-  if (
-    typeof value !== 'string' ||
-    value.trim().length === 0
-  ) {
+  if (typeof value !== 'string' || value.trim().length === 0) {
     throw new InvalidSyncOperationError(
       `Payload field ${key} is required.`
     );
@@ -52,16 +47,70 @@ function requiredString(
   return value;
 }
 
+function requiredUuid(
+  payload: Record<string, unknown>,
+  key: string,
+): string {
+  const value = requiredString(payload, key);
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  if (!uuid.test(value.trim())) {
+    throw new InvalidSyncOperationError(
+      `Payload field ${key} must be a UUID.`,
+    );
+  }
+
+  return value.trim();
+}
+
+function requiredSex(
+  payload: Record<string, unknown>,
+): string {
+  const value = requiredString(payload, 'sex').trim().toLowerCase();
+
+  if (value !== 'male' && value !== 'female' && value !== 'other' && value !== 'unknown') {
+    throw new InvalidSyncOperationError(
+      'Payload field sex must be one of: male, female, other, unknown.',
+    );
+  }
+
+  return value;
+}
+
+function optionalUuid(
+  payload: Record<string, unknown>,
+  key: string,
+): string | null {
+  const value = payload[key];
+
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new InvalidSyncOperationError(
+      `Payload field ${key} must be a UUID.`,
+    );
+  }
+
+  const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+  if (!uuid.test(value.trim())) {
+    throw new InvalidSyncOperationError(
+      `Payload field ${key} must be a UUID.`,
+    );
+  }
+
+  return value.trim();
+}
+
 function optionalString(
   payload: Record<string, unknown>,
   key: string
 ): string | null {
   const value = payload[key];
 
-  if (
-    value === undefined ||
-    value === null
-  ) {
+  if (value === undefined || value === null) {
     return null;
   }
 
@@ -80,10 +129,7 @@ function requiredNumber(
 ): number {
   const value = payload[key];
 
-  if (
-    typeof value !== 'number' ||
-    !Number.isFinite(value)
-  ) {
+  if (typeof value !== 'number' || !Number.isFinite(value)) {
     throw new InvalidSyncOperationError(
       `Payload field ${key} must be a finite number.`
     );
@@ -92,9 +138,49 @@ function requiredNumber(
   return value;
 }
 
-function asPayload(
-  value: unknown
-): Record<string, unknown> {
+function requiredDate(
+  payload: Record<string, unknown>,
+  key: string
+): Date {
+  const value = requiredString(payload, key);
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    throw new InvalidSyncOperationError(
+      `Payload field ${key} must be a valid timestamp.`
+    );
+  }
+
+  return date;
+}
+
+function optionalDate(
+  payload: Record<string, unknown>,
+  key: string
+): Date | null {
+  const value = payload[key];
+
+  if (value === undefined || value === null) {
+    return null;
+  }
+
+  if (typeof value !== 'string') {
+    throw new InvalidSyncOperationError(
+      `Payload field ${key} must be a string.`
+    );
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new InvalidSyncOperationError(
+      `Payload field ${key} must be a valid timestamp.`
+    );
+  }
+
+  return date;
+}
+
+function asPayload(value: unknown): Record<string, unknown> {
   if (
     typeof value !== 'object' ||
     value === null ||
@@ -105,265 +191,75 @@ function asPayload(
     );
   }
 
-  return value as Record<
-    string,
-    unknown
-  >;
+  return value as Record<string, unknown>;
 }
 
+
 async function applyPatientCreate(
-  client: PoolClient,
+  db: DatabaseClient,
   operation: SyncOperationInput
 ): Promise<void> {
-  const p = asPayload(
-    operation.payload
-  );
+  const p = asPayload(operation.payload);
 
-  await client.query(
-    `
-      INSERT INTO patients (
-        id,
-        source_system,
-        source_record_id,
-        originating_node_id,
-        family_serial_no,
-        phic_no,
-        last_name,
-        first_name,
-        middle_name,
-        suffix,
-        birth_date,
-        sex,
-        civil_status,
-        place_of_birth,
-        religion,
-        educational_attainment,
-        contact_number,
-        address_line,
-        purok,
-        barangay,
-        municipality_city,
-        province,
-        district,
-        phic_membership_category,
-        phic_membership_type,
-        employment_status,
-        occupation,
-        spouse_name,
-        spouse_birth_date,
-        spouse_occupation,
-        member_maiden_name,
-        father_name,
-        family_position,
-        version,
-        created_at,
-        updated_at
-      )
-      VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,
-        $11,$12,$13,$14,$15,$16,$17,$18,$19,$20,
-        $21,$22,$23,$24,$25,$26,$27,$28,$29,$30,
-        $31,$32,$33,$34,$35,$36
-      )
-    `,
-    [
-      requiredString(p, 'id'),
-
-      optionalString(
-        p,
-        'sourceSystem'
-      ),
-
-      optionalString(
-        p,
-        'sourceRecordId'
-      ),
-
-      operation.nodeId,
-
-      optionalString(
-        p,
-        'familySerialNo'
-      ),
-
-      optionalString(
-        p,
-        'phicNo'
-      ),
-
-      requiredString(
-        p,
-        'lastName'
-      ),
-
-      requiredString(
-        p,
-        'firstName'
-      ),
-
-      optionalString(
-        p,
-        'middleName'
-      ),
-
-      optionalString(
-        p,
-        'suffix'
-      ),
-
-      requiredString(
-        p,
-        'birthDate'
-      ),
-
-      requiredString(
-        p,
-        'sex'
-      ),
-
-      optionalString(
-        p,
-        'civilStatus'
-      ),
-
-      optionalString(
-        p,
-        'placeOfBirth'
-      ),
-
-      optionalString(
-        p,
-        'religion'
-      ),
-
-      optionalString(
-        p,
-        'educationalAttainment'
-      ),
-
-      optionalString(
-        p,
-        'contactNumber'
-      ),
-
-      optionalString(
-        p,
-        'addressLine'
-      ),
-
-      optionalString(
-        p,
-        'purok'
-      ),
-
-      optionalString(
-        p,
-        'barangay'
-      ),
-
-      optionalString(
-        p,
-        'municipalityCity'
-      ),
-
-      optionalString(
-        p,
-        'province'
-      ),
-
-      optionalString(
-        p,
-        'district'
-      ),
-
-      optionalString(
-        p,
-        'phicMembershipCategory'
-      ),
-
-      optionalString(
-        p,
-        'phicMembershipType'
-      ),
-
-      optionalString(
-        p,
-        'employmentStatus'
-      ),
-
-      optionalString(
-        p,
-        'occupation'
-      ),
-
-      optionalString(
-        p,
-        'spouseName'
-      ),
-
-      optionalString(
-        p,
-        'spouseBirthDate'
-      ),
-
-      optionalString(
-        p,
-        'spouseOccupation'
-      ),
-
-      optionalString(
-        p,
-        'memberMaidenName'
-      ),
-
-      optionalString(
-        p,
-        'fatherName'
-      ),
-
-      optionalString(
-        p,
-        'familyPosition'
-      ),
-
-      requiredNumber(
-        p,
-        'version'
-      ),
-
-      requiredString(
-        p,
-        'createdAt'
-      ),
-
-      requiredString(
-        p,
-        'updatedAt'
-      ),
-    ]
-  );
+  await db.patient.create({
+    data: {
+      id: requiredUuid(p, 'id'),
+      sourceSystem: optionalString(p, 'sourceSystem'),
+      sourceRecordId: optionalString(p, 'sourceRecordId'),
+      originatingNodeId: operation.nodeId,
+      familySerialNo: optionalString(p, 'familySerialNo'),
+      phicNo: optionalString(p, 'phicNo'),
+      lastName: requiredString(p, 'lastName'),
+      firstName: requiredString(p, 'firstName'),
+      middleName: optionalString(p, 'middleName'),
+      suffix: optionalString(p, 'suffix'),
+      birthDate: requiredDate(p, 'birthDate'),
+      sex: requiredSex(p),
+      civilStatus: optionalString(p, 'civilStatus'),
+      placeOfBirth: optionalString(p, 'placeOfBirth'),
+      religion: optionalString(p, 'religion'),
+      educationalAttainment: optionalString(p, 'educationalAttainment'),
+      contactNumber: optionalString(p, 'contactNumber'),
+      addressLine: optionalString(p, 'addressLine'),
+      purok: optionalString(p, 'purok'),
+      barangay: optionalString(p, 'barangay'),
+      municipalityCity: optionalString(p, 'municipalityCity'),
+      province: optionalString(p, 'province'),
+      district: optionalString(p, 'district'),
+      phicMembershipCategory: optionalString(p, 'phicMembershipCategory'),
+      phicMembershipType: optionalString(p, 'phicMembershipType'),
+      employmentStatus: optionalString(p, 'employmentStatus'),
+      occupation: optionalString(p, 'occupation'),
+      spouseName: optionalString(p, 'spouseName'),
+      spouseBirthDate: optionalDate(p, 'spouseBirthDate'),
+      spouseOccupation: optionalString(p, 'spouseOccupation'),
+      memberMaidenName: optionalString(p, 'memberMaidenName'),
+      fatherName: optionalString(p, 'fatherName'),
+      familyPosition: optionalString(p, 'familyPosition'),
+      version: requiredNumber(p, 'version'),
+      createdAt: requiredDate(p, 'createdAt'),
+      updatedAt: requiredDate(p, 'updatedAt'),
+    },
+  });
 }
 
 async function applyPatientUpdate(
-  client: PoolClient,
+  db: DatabaseClient,
   operation: SyncOperationInput,
   p: Record<string, unknown>,
   incomingVersion: number
 ): Promise<void> {
-  const current = await client.query<{
-    version: number;
-  }>(
-    `
-      SELECT version
-      FROM patients
-      WHERE id = $1
-      FOR UPDATE
-    `,
-    [operation.entityId]
-  );
+  // Prisma does not expose SELECT ... FOR UPDATE through its model API.
+  // Keep the row lock inside the Prisma-managed transaction so concurrent
+  // patient updates retain the same serialization guarantees as before.
+  const current = await db.$queryRaw<Array<{ version: number }>>`
+    SELECT version
+    FROM public.patients
+    WHERE id = ${operation.entityId}::uuid
+    FOR UPDATE
+  `;
 
-  const currentVersion =
-    current.rows[0]?.version ?? null;
+  const currentVersion = current[0]?.version ?? null;
 
   if (currentVersion === null) {
     throw new PatientVersionConflictError(
@@ -380,95 +276,56 @@ async function applyPatientUpdate(
   if (incomingVersion !== expectedVersion) {
     throw new PatientVersionConflictError(
       operation.entityId,
-      incomingVersion <= currentVersion
-        ? 'stale-version'
-        : 'version-gap',
+      incomingVersion <= currentVersion ? 'stale-version' : 'version-gap',
       incomingVersion,
       currentVersion,
       expectedVersion
     );
   }
 
-  const result = await client.query(
-    `
-      UPDATE patients
-      SET
-        source_system = $2,
-        source_record_id = $3,
-        family_serial_no = $4,
-        phic_no = $5,
-        last_name = $6,
-        first_name = $7,
-        middle_name = $8,
-        suffix = $9,
-        birth_date = $10,
-        sex = $11,
-        civil_status = $12,
-        place_of_birth = $13,
-        religion = $14,
-        educational_attainment = $15,
-        contact_number = $16,
-        address_line = $17,
-        purok = $18,
-        barangay = $19,
-        municipality_city = $20,
-        province = $21,
-        district = $22,
-        phic_membership_category = $23,
-        phic_membership_type = $24,
-        employment_status = $25,
-        occupation = $26,
-        spouse_name = $27,
-        spouse_birth_date = $28,
-        spouse_occupation = $29,
-        member_maiden_name = $30,
-        father_name = $31,
-        family_position = $32,
-        version = $33,
-        updated_at = $34
-      WHERE id = $1
-        AND version = $35
-    `,
-    [
-      operation.entityId,
-      optionalString(p, 'sourceSystem'),
-      optionalString(p, 'sourceRecordId'),
-      optionalString(p, 'familySerialNo'),
-      optionalString(p, 'phicNo'),
-      requiredString(p, 'lastName'),
-      requiredString(p, 'firstName'),
-      optionalString(p, 'middleName'),
-      optionalString(p, 'suffix'),
-      requiredString(p, 'birthDate'),
-      requiredString(p, 'sex'),
-      optionalString(p, 'civilStatus'),
-      optionalString(p, 'placeOfBirth'),
-      optionalString(p, 'religion'),
-      optionalString(p, 'educationalAttainment'),
-      optionalString(p, 'contactNumber'),
-      optionalString(p, 'addressLine'),
-      optionalString(p, 'purok'),
-      optionalString(p, 'barangay'),
-      optionalString(p, 'municipalityCity'),
-      optionalString(p, 'province'),
-      optionalString(p, 'district'),
-      optionalString(p, 'phicMembershipCategory'),
-      optionalString(p, 'phicMembershipType'),
-      optionalString(p, 'employmentStatus'),
-      optionalString(p, 'occupation'),
-      optionalString(p, 'spouseName'),
-      optionalString(p, 'spouseBirthDate'),
-      optionalString(p, 'spouseOccupation'),
-      optionalString(p, 'memberMaidenName'),
-      optionalString(p, 'fatherName'),
-      optionalString(p, 'familyPosition'),
-      incomingVersion,
-      requiredString(p, 'updatedAt'),
-      currentVersion,
-    ]
-  );
+  const result = await db.patient.updateMany({
+    where: {
+      id: operation.entityId,
+      version: currentVersion,
+    },
+    data: {
+      sourceSystem: optionalString(p, 'sourceSystem'),
+      sourceRecordId: optionalString(p, 'sourceRecordId'),
+      familySerialNo: optionalString(p, 'familySerialNo'),
+      phicNo: optionalString(p, 'phicNo'),
+      lastName: requiredString(p, 'lastName'),
+      firstName: requiredString(p, 'firstName'),
+      middleName: optionalString(p, 'middleName'),
+      suffix: optionalString(p, 'suffix'),
+      birthDate: requiredDate(p, 'birthDate'),
+      sex: requiredSex(p),
+      civilStatus: optionalString(p, 'civilStatus'),
+      placeOfBirth: optionalString(p, 'placeOfBirth'),
+      religion: optionalString(p, 'religion'),
+      educationalAttainment: optionalString(p, 'educationalAttainment'),
+      contactNumber: optionalString(p, 'contactNumber'),
+      addressLine: optionalString(p, 'addressLine'),
+      purok: optionalString(p, 'purok'),
+      barangay: optionalString(p, 'barangay'),
+      municipalityCity: optionalString(p, 'municipalityCity'),
+      province: optionalString(p, 'province'),
+      district: optionalString(p, 'district'),
+      phicMembershipCategory: optionalString(p, 'phicMembershipCategory'),
+      phicMembershipType: optionalString(p, 'phicMembershipType'),
+      employmentStatus: optionalString(p, 'employmentStatus'),
+      occupation: optionalString(p, 'occupation'),
+      spouseName: optionalString(p, 'spouseName'),
+      spouseBirthDate: optionalDate(p, 'spouseBirthDate'),
+      spouseOccupation: optionalString(p, 'spouseOccupation'),
+      memberMaidenName: optionalString(p, 'memberMaidenName'),
+      fatherName: optionalString(p, 'fatherName'),
+      familyPosition: optionalString(p, 'familyPosition'),
+      version: incomingVersion,
+      updatedAt: requiredDate(p, 'updatedAt'),
+    },
+  });
 
-  if (result.rowCount !== 1) {
+  if (result.count !== 1) {
     throw new PatientVersionConflictError(
       operation.entityId,
       'stale-version',
@@ -480,208 +337,108 @@ async function applyPatientUpdate(
 }
 
 async function applyEncounterCreate(
-  client: PoolClient,
+  db: DatabaseClient,
   operation: SyncOperationInput
 ): Promise<void> {
-  const p = asPayload(
-    operation.payload
-  );
+  const p = asPayload(operation.payload);
 
-  await client.query(
-    `
-      INSERT INTO encounters (
-        id,
-        patient_id,
-        source_system,
-        source_record_id,
-        originating_node_id,
-        encounter_date,
-        encounter_type,
-        chief_complaint,
-        history_present_illness,
-        assessment_plan,
-        outcome,
-        facility_id,
-        practitioner_id,
-        version,
-        created_at,
-        updated_at
-      )
-      VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,
-        $9,$10,$11,$12,$13,$14,$15,$16
-      )
-    `,
-    [
-      requiredString(p, 'id'),
-      requiredString(p, 'patientId'),
-
-      optionalString(p, 'sourceSystem'),
-      optionalString(p, 'sourceRecordId'),
-
-      operation.nodeId,
-
-      requiredString(p, 'encounterDate'),
-
-      optionalString(p, 'encounterType'),
-      optionalString(p, 'chiefComplaint'),
-      optionalString(
-        p,
-        'historyPresentIllness'
-      ),
-      optionalString(p, 'assessmentPlan'),
-      optionalString(p, 'outcome'),
-
-      optionalString(p, 'facilityId'),
-      optionalString(p, 'practitionerId'),
-
-      requiredNumber(p, 'version'),
-
-      requiredString(p, 'createdAt'),
-      requiredString(p, 'updatedAt'),
-    ]
-  );
+  await db.encounter.create({
+    data: {
+      id: requiredUuid(p, 'id'),
+      patientId: requiredUuid(p, 'patientId'),
+      sourceSystem: optionalString(p, 'sourceSystem'),
+      sourceRecordId: optionalString(p, 'sourceRecordId'),
+      originatingNodeId: operation.nodeId,
+      encounterDate: requiredDate(p, 'encounterDate'),
+      encounterType: optionalString(p, 'encounterType'),
+      chiefComplaint: optionalString(p, 'chiefComplaint'),
+      historyPresentIllness: optionalString(p, 'historyPresentIllness'),
+      assessmentPlan: optionalString(p, 'assessmentPlan'),
+      outcome: optionalString(p, 'outcome'),
+      facilityId: optionalString(p, 'facilityId'),
+      practitionerId: optionalString(p, 'practitionerId'),
+      version: requiredNumber(p, 'version'),
+      createdAt: requiredDate(p, 'createdAt'),
+      updatedAt: requiredDate(p, 'updatedAt'),
+    },
+  });
 }
 
 async function applyObservationCreate(
-  client: PoolClient,
+  db: DatabaseClient,
   operation: SyncOperationInput
 ): Promise<void> {
-  const p = asPayload(
-    operation.payload
-  );
-
+  const p = asPayload(operation.payload);
   const valueNumeric =
     p.valueNumeric === undefined
       ? null
-      : requiredNumber(
-          p,
-          'valueNumeric'
-        );
+      : requiredNumber(p, 'valueNumeric');
 
-  await client.query(
-    `
-      INSERT INTO observations (
-        id,
-        patient_id,
-        encounter_id,
-        source_system,
-        source_record_id,
-        originating_node_id,
-        code,
-        value_text,
-        value_numeric,
-        unit,
-        observed_at,
-        version,
-        created_at,
-        updated_at
-      )
-      VALUES (
-        $1,$2,$3,$4,$5,$6,$7,
-        $8,$9,$10,$11,$12,$13,$14
-      )
-    `,
-    [
-      requiredString(p, 'id'),
-      requiredString(p, 'patientId'),
-
-      optionalString(p, 'encounterId'),
-
-      optionalString(p, 'sourceSystem'),
-      optionalString(p, 'sourceRecordId'),
-
-      operation.nodeId,
-
-      requiredString(p, 'code'),
-
-      optionalString(p, 'valueText'),
+  await db.observation.create({
+    data: {
+      id: requiredUuid(p, 'id'),
+      patientId: requiredUuid(p, 'patientId'),
+      encounterId: optionalUuid(p, 'encounterId'),
+      sourceSystem: optionalString(p, 'sourceSystem'),
+      sourceRecordId: optionalString(p, 'sourceRecordId'),
+      originatingNodeId: operation.nodeId,
+      code: requiredString(p, 'code'),
+      valueText: optionalString(p, 'valueText'),
       valueNumeric,
-      optionalString(p, 'unit'),
-
-      requiredString(p, 'observedAt'),
-
-      requiredNumber(p, 'version'),
-
-      requiredString(p, 'createdAt'),
-      requiredString(p, 'updatedAt'),
-    ]
-  );
+      unit: optionalString(p, 'unit'),
+      observedAt: requiredDate(p, 'observedAt'),
+      version: requiredNumber(p, 'version'),
+      createdAt: requiredDate(p, 'createdAt'),
+      updatedAt: requiredDate(p, 'updatedAt'),
+    },
+  });
 }
 
 async function applyImmunizationCreate(
-  client: PoolClient,
+  db: DatabaseClient,
   operation: SyncOperationInput
 ): Promise<void> {
-  const p = asPayload(
-    operation.payload
-  );
+  const p = asPayload(operation.payload);
 
-  await client.query(
-    `
-      INSERT INTO immunizations (
-        id,
-        patient_id,
-        encounter_id,
-        source_system,
-        source_record_id,
-        originating_node_id,
-        vaccine_code,
-        vaccine_name,
-        dose_label,
-        administered_date,
-        status,
-        remarks,
-        version,
-        created_at,
-        updated_at
-      )
-      VALUES (
-        $1,$2,$3,$4,$5,$6,$7,$8,
-        $9,$10,$11,$12,$13,$14,$15
-      )
-    `,
-    [
-      requiredString(p, 'id'),
-      requiredString(p, 'patientId'),
-
-      optionalString(p, 'encounterId'),
-
-      optionalString(p, 'sourceSystem'),
-      optionalString(p, 'sourceRecordId'),
-
-      operation.nodeId,
-
-      requiredString(p, 'vaccineCode'),
-      optionalString(p, 'vaccineName'),
-      optionalString(p, 'doseLabel'),
-      optionalString(
-        p,
-        'administeredDate'
-      ),
-
-      requiredString(p, 'status'),
-      optionalString(p, 'remarks'),
-
-      requiredNumber(p, 'version'),
-
-      requiredString(p, 'createdAt'),
-      requiredString(p, 'updatedAt'),
-    ]
-  );
+  await db.immunization.create({
+    data: {
+      id: requiredUuid(p, 'id'),
+      patientId: requiredUuid(p, 'patientId'),
+      encounterId: optionalUuid(p, 'encounterId'),
+      sourceSystem: optionalString(p, 'sourceSystem'),
+      sourceRecordId: optionalString(p, 'sourceRecordId'),
+      originatingNodeId: operation.nodeId,
+      vaccineCode: requiredString(p, 'vaccineCode'),
+      vaccineName: optionalString(p, 'vaccineName'),
+      doseLabel: optionalString(p, 'doseLabel'),
+      administeredDate: optionalDate(p, 'administeredDate'),
+      status: requiredString(p, 'status'),
+      remarks: optionalString(p, 'remarks'),
+      version: requiredNumber(p, 'version'),
+      createdAt: requiredDate(p, 'createdAt'),
+      updatedAt: requiredDate(p, 'updatedAt'),
+    },
+  });
 }
 
 export async function applySyncMutation(
-  client: PoolClient,
+  db: DatabaseClient,
   operation: SyncOperationInput
 ): Promise<void> {
   const payload = asPayload(operation.payload);
-  if (requiredString(payload, 'id').toLowerCase() !== operation.entityId.toLowerCase()) {
+
+  if (
+    requiredUuid(payload, 'id').toLowerCase() !==
+    operation.entityId.toLowerCase()
+  ) {
     throw new InvalidSyncOperationError('Payload id must match entityId.');
   }
+
   const version = requiredNumber(payload, 'version');
   if (!Number.isInteger(version) || version < 1 || version > 2147483647) {
-    throw new InvalidSyncOperationError('Payload version must be a positive PostgreSQL integer.');
+    throw new InvalidSyncOperationError(
+      'Payload version must be a positive PostgreSQL integer.'
+    );
   }
 
   if (operation.operationType === 'update') {
@@ -691,12 +448,7 @@ export async function applySyncMutation(
       );
     }
 
-    await applyPatientUpdate(
-      client,
-      operation,
-      payload,
-      version
-    );
+    await applyPatientUpdate(db, operation, payload, version);
     return;
   }
 
@@ -707,57 +459,52 @@ export async function applySyncMutation(
   }
 
   // A child may reference only an encounter belonging to the same patient.
-  if (operation.entityType === 'observation' || operation.entityType === 'immunization') {
+  if (
+    operation.entityType === 'observation' ||
+    operation.entityType === 'immunization'
+  ) {
     const encounterId = optionalString(payload, 'encounterId');
+
     if (encounterId !== null) {
-      const encounter = await client.query<{ patient_id: string }>(
-        'SELECT patient_id FROM encounters WHERE id = $1 FOR KEY SHARE', [encounterId]
-      );
-      if (encounter.rows[0] && encounter.rows[0].patient_id !== requiredString(payload, 'patientId').toLowerCase()) {
-        throw new InvalidSyncOperationError('Encounter must belong to the payload patient.');
+      const encounter = await db.$queryRaw<Array<{ patientId: string }>>`
+        SELECT patient_id AS "patientId"
+        FROM public.encounters
+        WHERE id = ${encounterId}::uuid
+        FOR KEY SHARE
+      `;
+
+      if (
+        encounter[0] &&
+        encounter[0].patientId.toLowerCase() !==
+          requiredString(payload, 'patientId').toLowerCase()
+      ) {
+        throw new InvalidSyncOperationError(
+          'Encounter must belong to the payload patient.'
+        );
       }
     }
   }
 
-  switch (
-    operation.entityType
-  ) {
+  switch (operation.entityType) {
     case 'patient':
-      await applyPatientCreate(
-        client,
-        operation
-      );
+      await applyPatientCreate(db, operation);
       return;
 
     case 'encounter':
-      await applyEncounterCreate(
-        client,
-        operation
-      );
+      await applyEncounterCreate(db, operation);
       return;
 
     case 'observation':
-      await applyObservationCreate(
-        client,
-        operation
-      );
+      await applyObservationCreate(db, operation);
       return;
 
     case 'immunization':
-      await applyImmunizationCreate(
-        client,
-        operation
-      );
+      await applyImmunizationCreate(db, operation);
       return;
 
     default: {
-      const exhaustive:
-        never =
-        operation.entityType;
-
-      throw new Error(
-        `Unsupported entity type: ${exhaustive}`
-      );
+      const exhaustive: never = operation.entityType;
+      throw new Error(`Unsupported entity type: ${exhaustive}`);
     }
   }
 }

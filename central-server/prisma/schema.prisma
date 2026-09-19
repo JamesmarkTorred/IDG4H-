@@ -1,0 +1,144 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model SyncOperation {
+  operationId   String    @id @map("operation_id") @db.Uuid
+  nodeId        String    @map("node_id")
+  entityType    String    @map("entity_type")
+  entityId      String    @map("entity_id") @db.Uuid
+  operationType String    @map("operation_type")
+  payload       Json
+  status        String    @default("received")
+  receivedAt    DateTime  @default(now()) @map("received_at") @db.Timestamptz(6)
+  appliedAt     DateTime? @map("applied_at") @db.Timestamptz(6)
+  failedAt      DateTime? @map("failed_at") @db.Timestamptz(6)
+  errorMessage  String?   @map("error_message")
+
+  @@index([nodeId], map: "idx_sync_operations_node")
+  @@index([entityType, entityId], map: "idx_sync_operations_entity")
+  @@index([status], map: "idx_sync_operations_status")
+  @@index([receivedAt], map: "idx_sync_operations_received")
+  @@map("sync_operations")
+}
+
+model Patient {
+  id                     String         @id @db.Uuid
+  sourceSystem           String?        @map("source_system")
+  sourceRecordId         String?        @map("source_record_id")
+  originatingNodeId      String         @map("originating_node_id")
+  familySerialNo         String?        @map("family_serial_no")
+  phicNo                 String?        @map("phic_no")
+  lastName               String         @map("last_name")
+  firstName              String         @map("first_name")
+  middleName             String?        @map("middle_name")
+  suffix                 String?
+  birthDate              DateTime       @map("birth_date") @db.Date
+  sex                    String
+  civilStatus            String?        @map("civil_status")
+  placeOfBirth           String?        @map("place_of_birth")
+  religion               String?
+  educationalAttainment  String?        @map("educational_attainment")
+  contactNumber          String?        @map("contact_number")
+  addressLine            String?        @map("address_line")
+  purok                  String?
+  barangay               String?
+  municipalityCity       String?        @map("municipality_city")
+  province               String?
+  district               String?
+  phicMembershipCategory String?        @map("phic_membership_category")
+  phicMembershipType     String?        @map("phic_membership_type")
+  employmentStatus       String?        @map("employment_status")
+  occupation             String?
+  spouseName             String?        @map("spouse_name")
+  spouseBirthDate        DateTime?      @map("spouse_birth_date") @db.Date
+  spouseOccupation       String?        @map("spouse_occupation")
+  memberMaidenName       String?        @map("member_maiden_name")
+  fatherName             String?        @map("father_name")
+  familyPosition         String?        @map("family_position")
+  version                Int
+  createdAt              DateTime       @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime       @map("updated_at") @db.Timestamptz(6)
+  encounters             Encounter[]
+  immunizations          Immunization[]
+  observations           Observation[]
+
+  @@map("patients")
+}
+
+model Encounter {
+  id                    String         @id @db.Uuid
+  patientId             String         @map("patient_id") @db.Uuid
+  sourceSystem          String?        @map("source_system")
+  sourceRecordId        String?        @map("source_record_id")
+  originatingNodeId     String         @map("originating_node_id")
+  encounterDate         DateTime       @map("encounter_date") @db.Timestamptz(6)
+  encounterType         String?        @map("encounter_type")
+  chiefComplaint        String?        @map("chief_complaint")
+  historyPresentIllness String?        @map("history_present_illness")
+  assessmentPlan        String?        @map("assessment_plan")
+  outcome               String?
+  facilityId            String?        @map("facility_id")
+  practitionerId        String?        @map("practitioner_id")
+  version               Int
+  createdAt             DateTime       @map("created_at") @db.Timestamptz(6)
+  updatedAt             DateTime       @map("updated_at") @db.Timestamptz(6)
+  patient               Patient        @relation(fields: [patientId], references: [id])
+  immunizations         Immunization[]
+  observations          Observation[]
+
+  @@index([patientId], map: "idx_encounters_patient")
+  @@map("encounters")
+}
+
+model Observation {
+  id                String     @id @db.Uuid
+  patientId         String     @map("patient_id") @db.Uuid
+  encounterId       String?    @map("encounter_id") @db.Uuid
+  sourceSystem      String?    @map("source_system")
+  sourceRecordId    String?    @map("source_record_id")
+  originatingNodeId String     @map("originating_node_id")
+  code              String
+  valueText         String?    @map("value_text")
+  valueNumeric      Float?     @map("value_numeric")
+  unit              String?
+  observedAt        DateTime   @map("observed_at") @db.Timestamptz(6)
+  version           Int
+  createdAt         DateTime   @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime   @map("updated_at") @db.Timestamptz(6)
+  encounter         Encounter? @relation(fields: [encounterId], references: [id])
+  patient           Patient    @relation(fields: [patientId], references: [id])
+
+  @@index([patientId], map: "idx_observations_patient")
+  @@index([encounterId], map: "idx_observations_encounter")
+  @@map("observations")
+}
+
+model Immunization {
+  id                String     @id @db.Uuid
+  patientId         String     @map("patient_id") @db.Uuid
+  encounterId       String?    @map("encounter_id") @db.Uuid
+  sourceSystem      String?    @map("source_system")
+  sourceRecordId    String?    @map("source_record_id")
+  originatingNodeId String     @map("originating_node_id")
+  vaccineCode       String     @map("vaccine_code")
+  vaccineName       String?    @map("vaccine_name")
+  doseLabel         String?    @map("dose_label")
+  administeredDate  DateTime?  @map("administered_date") @db.Timestamptz(6)
+  status            String
+  remarks           String?
+  version           Int
+  createdAt         DateTime   @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime   @map("updated_at") @db.Timestamptz(6)
+  encounter         Encounter? @relation(fields: [encounterId], references: [id])
+  patient           Patient    @relation(fields: [patientId], references: [id])
+
+  @@index([patientId], map: "idx_immunizations_patient")
+  @@index([encounterId], map: "idx_immunizations_encounter")
+  @@map("immunizations")
+}

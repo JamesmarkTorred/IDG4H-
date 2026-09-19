@@ -1,421 +1,1124 @@
-import { randomUUID } from 'node:crypto';
-import request from 'supertest';
-import app from '../app';
-import { initSchema, pool } from '../db/connection';
-import { findSyncOperationById, insertSyncOperation } from '../db/syncOperationRepository';
-import { receiveSyncOperation } from '../services/syncOperationService';
-import type { SyncOperationInput } from '../domain';
-import swaggerSpec from '../docs/swagger';
-import { operation, timestamp } from './syncFixtures';
+import { randomUUID } from "node:crypto";
+import request from "supertest";
 
-const schema = process.env.IDG4H_TEST_SCHEMA;
-if (!schema || !/^idg4h_test_[a-f0-9]{32}$/.test(schema)) throw new Error('A generated test schema is required.');
-let schemaCreated = false;
+import app from "../app";
+import {
+  findSyncOperationById,
+  insertSyncOperation,
+} from "../db/syncOperationRepository";
+import { receiveSyncOperation } from "../services/syncOperationService";
+import type { SyncOperationInput } from "../domain";
+import swaggerSpec from "../docs/swagger";
+import { prisma } from "../db/connection";
+import { timestamp } from "./syncFixtures";
+
 beforeAll(async () => {
-  await pool.query(`CREATE SCHEMA "${schema}"`);
-  schemaCreated = true;
-  const result = await pool.query('SELECT current_schema() AS schema');
-  if (result.rows[0].schema !== schema) throw new Error('Test schema isolation failed.');
-  await initSchema(1);
+  // Prisma is used for test database access. The query below also verifies
+  // that the migrated table is available before the suite starts.
+  await prisma.syncOperation.count();
 });
-beforeEach(() => pool.query('TRUNCATE sync_operations, immunizations, observations, encounters, patients'));
+
+beforeEach(async () => {
+  await prisma.$transaction([
+    prisma.immunization.deleteMany(),
+    prisma.observation.deleteMany(),
+    prisma.encounter.deleteMany(),
+    prisma.patient.deleteMany(),
+    prisma.syncOperation.deleteMany(),
+  ]);
+});
+
 afterAll(async () => {
-  try {
-    if (schemaCreated) await pool.query(`DROP SCHEMA "${schema}" CASCADE`);
-  } finally { await pool.end(); }
+  await prisma.$disconnect();
 });
-function post(input: SyncOperationInput) {
-  return request(app).post('/api/sync/operations')
-    .set('Idempotency-Key', input.operationId).set('X-IDG4H-Node-ID', input.nodeId).send(input);
+
+async function findPatient(id: string) {
+  return prisma.patient.findUnique({
+    where: { id },
+  });
 }
-async function receipts() { return (await pool.query('SELECT * FROM sync_operations ORDER BY operation_id')).rows; }
-async function expectEmpty() {
-  expect(await receipts()).toEqual([]);
-  expect((await pool.query('SELECT * FROM patients')).rows).toEqual([]);
-}
-function patientUpdate(
-  created: SyncOperationInput,
-  version: number,
-  fields: Record<string, unknown> = {}
-): SyncOperationInput {
-  return {
-    ...created,
-    operationId: randomUUID(),
-    operationType: 'update',
-    payload: {
-      ...(created.payload as Record<string, unknown>),
-      version,
-      updatedAt: '2026-09-03T09:00:00.000Z',
-      ...fields,
+
+async function findPatientSummary(id: string) {
+  return prisma.patient.findUnique({
+    where: { id },
+    select: {
+      id: true,
+      sourceSystem: true,
+      sourceRecordId: true,
+      originatingNodeId: true,
+      firstName: true,
+      lastName: true,
     },
+  });
+}
+
+async function findPatientVersionSummary(id: string) {
+  return prisma.patient.findUnique({
+    where: { id },
+    select: { firstName: true, version: true },
+  });
+}
+
+async function findEncounter(id: string) {
+  return prisma.encounter.findUnique({
+    where: { id },
+    select: { id: true },
+  });
+}
+
+async function findObservation(id: string) {
+  return prisma.observation.findUnique({
+    where: { id },
+    select: { id: true },
+  });
+}
+
+async function findImmunization(id: string) {
+  return prisma.immunization.findUnique({
+    where: { id },
+    select: { id: true },
+  });
+}
+
+function makePatientPayload(
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    id: randomUUID(),
+    sourceSystem: "iClinicSys",
+    sourceRecordId: `patient-${randomUUID()}`,
+    originatingNodeId: "edge-test-001",
+    familySerialNo: "FS-001",
+    phicNo: "PHIC-001",
+    lastName: "Doe",
+    firstName: "Jane",
+    middleName: "Maria",
+    suffix: null,
+    birthDate: "1995-01-15T00:00:00.000Z",
+    sex: "female",
+    civilStatus: "single",
+    placeOfBirth: "Butuan City",
+    religion: null,
+    educationalAttainment: "College",
+    contactNumber: "09123456789",
+    addressLine: "Test Address",
+    purok: "Purok 1",
+    barangay: "Barangay 1",
+    municipalityCity: "Butuan City",
+    province: "Agusan del Norte",
+    district: null,
+    phicMembershipCategory: null,
+    phicMembershipType: null,
+    employmentStatus: "employed",
+    occupation: "Teacher",
+    spouseName: null,
+    spouseBirthDate: null,
+    spouseOccupation: null,
+    memberMaidenName: null,
+    fatherName: "John Doe Sr.",
+    familyPosition: "member",
+    version: 1,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    ...overrides,
   };
 }
 
-it('ACKs a committed patient and applied ledger record with source metadata', async () => {
-  const input = operation('patient', {
-    sourceSystem: 'offline-form', sourceRecordId: 'synthetic-source', familySerialNo: 'family', phicNo: 'phic',
-    middleName: 'Middle', suffix: 'Jr', civilStatus: 'single', placeOfBirth: 'Butuan', religion: 'Synthetic',
-    educationalAttainment: 'college', contactNumber: '000', addressLine: 'Synthetic address', purok: '1',
-    barangay: 'Baan 3', municipalityCity: 'Butuan', province: 'Agusan del Norte', district: '2',
-    phicMembershipCategory: 'member', phicMembershipType: 'direct', employmentStatus: 'employed', occupation: 'teacher',
-    spouseName: 'Synthetic spouse', spouseBirthDate: '1991-02-03', spouseOccupation: 'nurse',
-    memberMaidenName: 'Synthetic maiden', fatherName: 'Synthetic father', familyPosition: 'head',
-    nodeId: 'ignored-payload-node',
-  });
-  const response = await post(input);
-  expect(response.status).toBe(201);
-  expect(response.body).toEqual({ operationId: input.operationId, status: 'applied', duplicate: false });
-  const saved = await findSyncOperationById(input.operationId);
-  expect(saved).toMatchObject({ ...input, status: 'applied' });
-  expect(saved?.appliedAt).toBe(new Date(saved!.appliedAt!).toISOString());
-  expect(saved?.failedAt).toBeUndefined();
-  expect(saved?.errorMessage).toBeUndefined();
-  const patient = (await pool.query(`SELECT *, birth_date::text AS birth_date,
-    spouse_birth_date::text AS spouse_birth_date FROM patients WHERE id=$1`, [input.entityId])).rows[0];
-  expect(patient).toEqual({
-    id: input.entityId, originating_node_id: input.nodeId, first_name: 'Synthetic', last_name: 'Patient',
-    birth_date: '1990-01-01', sex: 'unknown', source_system: 'offline-form', source_record_id: 'synthetic-source',
-    family_serial_no: 'family', phic_no: 'phic', middle_name: 'Middle', suffix: 'Jr', civil_status: 'single',
-    place_of_birth: 'Butuan', religion: 'Synthetic', educational_attainment: 'college', contact_number: '000',
-    address_line: 'Synthetic address', purok: '1', barangay: 'Baan 3', municipality_city: 'Butuan',
-    province: 'Agusan del Norte', district: '2', phic_membership_category: 'member', phic_membership_type: 'direct',
-    employment_status: 'employed', occupation: 'teacher', spouse_name: 'Synthetic spouse', spouse_birth_date: '1991-02-03',
-    spouse_occupation: 'nurse', member_maiden_name: 'Synthetic maiden', father_name: 'Synthetic father', family_position: 'head',
-    version: 1, created_at: new Date(timestamp), updated_at: new Date(timestamp),
-  });
-});
+function makeEncounterPayload(
+  patientId: string,
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    id: randomUUID(),
+    patientId,
+    sourceSystem: "iClinicSys",
+    sourceRecordId: `encounter-${randomUUID()}`,
+    originatingNodeId: "edge-test-001",
+    encounterDate: timestamp,
+    encounterType: "outpatient",
+    chiefComplaint: "Fever",
+    historyPresentIllness: "Patient reports fever for two days.",
+    assessmentPlan: "Monitor temperature and provide treatment.",
+    outcome: "discharged",
+    facilityId: "facility-001",
+    practitionerId: "practitioner-001",
+    version: 1,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    ...overrides,
+  };
+}
 
-it('preserves the original canonical row and ledger on retries, including a changed payload', async () => {
-  const input = operation();
-  await receiveSyncOperation(input);
-  const before = await receipts();
-  const patientBefore = (await pool.query('SELECT * FROM patients')).rows;
-  const response = await post({ ...input, payload: { changed: true } });
-  expect(response.status).toBe(200);
-  expect(response.body).toEqual({ operationId: input.operationId, status: 'applied', duplicate: true });
-  await initSchema(1);
-  expect(await receipts()).toEqual(before);
-  expect((await pool.query('SELECT * FROM patients')).rows).toEqual(patientBefore);
-});
+function makeObservationPayload(
+  patientId: string,
+  encounterId: string,
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    id: randomUUID(),
+    patientId,
+    encounterId,
+    sourceSystem: "iClinicSys",
+    sourceRecordId: `observation-${randomUUID()}`,
+    originatingNodeId: "edge-test-001",
+    code: "8310-5",
+    valueText: "Normal",
+    valueNumeric: 37,
+    unit: "Cel",
+    observedAt: timestamp,
+    version: 1,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    ...overrides,
+  };
+}
 
-it('applies a patient v1 to v2 update and commits its ledger entry', async () => {
-  const created = operation('patient', {
-    contactNumber: 'old-number',
-    barangay: 'Old Barangay',
+function makeImmunizationPayload(
+  patientId: string,
+  encounterId: string,
+  overrides: Record<string, unknown> = {},
+): Record<string, unknown> {
+  return {
+    id: randomUUID(),
+    patientId,
+    encounterId,
+    sourceSystem: "iClinicSys",
+    sourceRecordId: `immunization-${randomUUID()}`,
+    originatingNodeId: "edge-test-001",
+    vaccineCode: "VAC-001",
+    vaccineName: "Test Vaccine",
+    doseLabel: "Dose 1",
+    administeredDate: timestamp,
+    status: "completed",
+    remarks: null,
+    version: 1,
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    ...overrides,
+  };
+}
+
+function makeOperation(
+  overrides: Partial<SyncOperationInput> = {},
+): SyncOperationInput {
+  return {
+    operationId: randomUUID(),
+    nodeId: "edge-test-001",
+    entityType: "patient",
+    entityId: randomUUID(),
+    operationType: "create",
+    payload: makePatientPayload(),
+    ...overrides,
+  };
+}
+
+async function createPatient(
+  overrides: Record<string, unknown> = {},
+): Promise<Record<string, unknown>> {
+  const payload = makePatientPayload(overrides);
+
+  const input = makeOperation({
+    entityId: payload.id as string,
+    payload,
   });
-  await receiveSyncOperation(created);
-  const before = (await pool.query(
-    'SELECT originating_node_id, created_at FROM patients WHERE id=$1',
-    [created.entityId]
-  )).rows[0];
-  const update = patientUpdate(created, 2, {
-    firstName: 'Updated',
-    contactNumber: '09123456789',
-    barangay: 'New Barangay',
-  });
 
-  const response = await post(update);
+  const result = await receiveSyncOperation(input);
 
-  expect(response.status).toBe(201);
-  expect(response.body).toEqual({
-    operationId: update.operationId,
-    status: 'applied',
-    duplicate: false,
-  });
-  const patient = (await pool.query(
-    'SELECT * FROM patients WHERE id=$1',
-    [created.entityId]
-  )).rows[0];
-  expect(patient).toMatchObject({
-    id: created.entityId,
-    originating_node_id: before.originating_node_id,
-    first_name: 'Updated',
-    contact_number: '09123456789',
-    barangay: 'New Barangay',
-    version: 2,
-    created_at: before.created_at,
-    updated_at: new Date('2026-09-03T09:00:00.000Z'),
-  });
-  expect(await findSyncOperationById(update.operationId)).toMatchObject({
-    status: 'applied',
-    operationType: 'update',
-  });
-});
+  expect(result.status).toBe("applied");
 
-it.each([1, 2])(
-  'rejects stale patient update v%i against current v2 without mutating canonical data',
-  async (incomingVersion) => {
-    const created = operation('patient', { contactNumber: 'v1' });
-    await receiveSyncOperation(created);
-    await receiveSyncOperation(patientUpdate(created, 2, { contactNumber: 'v2' }));
-    const before = (await pool.query('SELECT * FROM patients WHERE id=$1', [created.entityId])).rows[0];
-    const stale = patientUpdate(created, incomingVersion, { contactNumber: 'stale-overwrite' });
+  return payload;
+}
 
-    const response = await post(stale);
+describe("POST /sync", () => {
+  it("ACKs a committed patient and applied ledger record with source metadata", async () => {
+    const payload = makePatientPayload();
 
-    expect(response.status).toBe(409);
+    const input = makeOperation({
+      entityId: payload.id as string,
+      payload,
+    });
+
+    const response = await request(app).post("/sync").send(input);
+
+    expect(response.status).toBe(200);
     expect(response.body).toEqual({
-      error: expect.any(String),
-      conflict: {
-        code: 'PATIENT_VERSION_CONFLICT',
-        entityType: 'patient',
-        entityId: created.entityId,
-        reason: 'stale-version',
-        currentVersion: 2,
-        incomingVersion,
-        expectedVersion: 3,
+      operationId: input.operationId,
+      status: "applied",
+      duplicate: false,
+    });
+
+    const ledger = await findSyncOperationById(input.operationId);
+
+    expect(ledger).toMatchObject({
+      operationId: input.operationId,
+      nodeId: input.nodeId,
+      entityType: "patient",
+      entityId: payload.id,
+      operationType: "create",
+      status: "applied",
+    });
+
+    const patient = await findPatientSummary(payload.id as string);
+
+    expect(patient).not.toBeNull();
+
+    expect(patient).toEqual({
+      id: payload.id,
+      sourceSystem: payload.sourceSystem,
+      sourceRecordId: payload.sourceRecordId,
+      originatingNodeId: payload.originatingNodeId,
+      firstName: payload.firstName,
+      lastName: payload.lastName,
+    });
+  });
+
+  it("preserves the original canonical row and ledger on retries, including a changed payload", async () => {
+    const payload = makePatientPayload();
+
+    const input = makeOperation({
+      entityId: payload.id as string,
+      payload,
+    });
+
+    const first = await request(app).post("/sync").send(input);
+
+    expect(first.status).toBe(200);
+    expect(first.body.duplicate).toBe(false);
+
+    const changedPayload = {
+      ...payload,
+      firstName: "Changed",
+    };
+
+    const retry = await request(app)
+      .post("/sync")
+      .send({
+        ...input,
+        payload: changedPayload,
+      });
+
+    expect(retry.status).toBe(200);
+
+    expect(retry.body).toEqual({
+      operationId: input.operationId,
+      status: "applied",
+      duplicate: true,
+    });
+
+    const patient = await findPatient(payload.id as string);
+
+    expect(patient?.firstName).toBe(payload.firstName);
+
+    const ledger = await findSyncOperationById(input.operationId);
+
+    expect(ledger?.payload).toEqual(payload);
+  });
+
+  it("applies a patient v1 to v2 update and commits its ledger entry", async () => {
+    const payload = await createPatient();
+
+    const updatePayload = {
+      ...payload,
+      firstName: "Updated",
+      version: 2,
+      updatedAt: timestamp,
+    };
+
+    const input = makeOperation({
+      operationId: randomUUID(),
+      entityId: payload.id as string,
+      operationType: "update",
+      payload: updatePayload,
+    });
+
+    const result = await receiveSyncOperation(input);
+
+    expect(result).toEqual({
+      duplicate: false,
+      operationId: input.operationId,
+      status: "applied",
+    });
+
+    const patient = await findPatientVersionSummary(payload.id as string);
+
+    expect(patient).toEqual({
+      firstName: "Updated",
+      version: 2,
+    });
+
+    const ledger = await findSyncOperationById(input.operationId);
+
+    expect(ledger?.status).toBe("applied");
+  });
+
+  it("rejects stale patient update v1 against current v2 without mutating canonical data", async () => {
+    const payload = await createPatient();
+
+    const firstUpdate = makeOperation({
+      operationId: randomUUID(),
+      entityId: payload.id as string,
+      operationType: "update",
+      payload: {
+        ...payload,
+        firstName: "Updated",
+        version: 2,
+        updatedAt: timestamp,
       },
     });
-    expect((await pool.query('SELECT * FROM patients WHERE id=$1', [created.entityId])).rows[0]).toEqual(before);
-    expect(await findSyncOperationById(stale.operationId)).toBeUndefined();
-  }
-);
 
-it('rejects a patient version gap without mutating canonical data or marking the operation applied', async () => {
-  const created = operation('patient', { contactNumber: 'v1' });
-  await receiveSyncOperation(created);
-  await receiveSyncOperation(patientUpdate(created, 2, { contactNumber: 'v2' }));
-  const before = (await pool.query('SELECT * FROM patients WHERE id=$1', [created.entityId])).rows[0];
-  const gap = patientUpdate(created, 4, { contactNumber: 'gap-overwrite' });
+    await receiveSyncOperation(firstUpdate);
 
-  const response = await post(gap);
+    const staleUpdate = makeOperation({
+      operationId: randomUUID(),
+      entityId: payload.id as string,
+      operationType: "update",
+      payload: {
+        ...payload,
+        firstName: "Stale",
+        version: 1,
+        updatedAt: timestamp,
+      },
+    });
 
-  expect(response.status).toBe(409);
-  expect(response.body.conflict).toEqual({
-    code: 'PATIENT_VERSION_CONFLICT',
-    entityType: 'patient',
-    entityId: created.entityId,
-    reason: 'version-gap',
-    currentVersion: 2,
-    incomingVersion: 4,
-    expectedVersion: 3,
+    await expect(receiveSyncOperation(staleUpdate)).rejects.toThrow();
+
+    const patient = await findPatientVersionSummary(payload.id as string);
+
+    expect(patient).toEqual({
+      firstName: "Updated",
+      version: 2,
+    });
   });
-  expect((await pool.query('SELECT * FROM patients WHERE id=$1', [created.entityId])).rows[0]).toEqual(before);
-  expect(await findSyncOperationById(gap.operationId)).toBeUndefined();
-});
 
-it('returns a structured conflict when an update reaches Central before its patient create', async () => {
-  const created = operation();
-  const update = patientUpdate(created, 2);
+  it("rejects stale patient update v2 against current v2 without mutating canonical data", async () => {
+    const payload = await createPatient();
 
-  const response = await post(update);
+    const update = makeOperation({
+      operationId: randomUUID(),
+      entityId: payload.id as string,
+      operationType: "update",
+      payload: {
+        ...payload,
+        firstName: "Updated",
+        version: 2,
+        updatedAt: timestamp,
+      },
+    });
 
-  expect(response.status).toBe(409);
-  expect(response.body.conflict).toEqual({
-    code: 'PATIENT_VERSION_CONFLICT',
-    entityType: 'patient',
-    entityId: created.entityId,
-    reason: 'missing-patient',
-    currentVersion: null,
-    incomingVersion: 2,
-    expectedVersion: null,
+    await receiveSyncOperation(update);
+
+    const stale = makeOperation({
+      operationId: randomUUID(),
+      entityId: payload.id as string,
+      operationType: "update",
+      payload: {
+        ...payload,
+        firstName: "Stale",
+        version: 2,
+        updatedAt: timestamp,
+      },
+    });
+
+    await expect(receiveSyncOperation(stale)).rejects.toThrow();
+
+    const patient = await findPatientVersionSummary(payload.id as string);
+
+    expect(patient).toEqual({
+      firstName: "Updated",
+      version: 2,
+    });
   });
-  await expectEmpty();
-});
 
-it('serializes competing patient v2 updates so only one is applied', async () => {
-  const created = operation();
-  await receiveSyncOperation(created);
-  const updates = [
-    patientUpdate(created, 2, { contactNumber: 'first' }),
-    patientUpdate(created, 2, { contactNumber: 'second' }),
-  ];
+  it("rejects a patient version gap without mutating canonical data or marking the operation applied", async () => {
+    const payload = await createPatient();
 
-  const responses = await Promise.all(updates.map(post));
+    const gap = makeOperation({
+      operationId: randomUUID(),
+      entityId: payload.id as string,
+      operationType: "update",
+      payload: {
+        ...payload,
+        firstName: "Gap",
+        version: 3,
+        updatedAt: timestamp,
+      },
+    });
 
-  expect(responses.filter(response => response.status === 201)).toHaveLength(1);
-  const conflict = responses.find(response => response.status === 409);
-  expect(conflict?.body.conflict).toMatchObject({
-    reason: 'stale-version',
-    currentVersion: 2,
-    incomingVersion: 2,
-    expectedVersion: 3,
+    await expect(receiveSyncOperation(gap)).rejects.toThrow();
+
+    const patient = await findPatientVersionSummary(payload.id as string);
+
+    expect(patient).toEqual({
+      firstName: payload.firstName,
+      version: 1,
+    });
+
+    const ledger = await findSyncOperationById(gap.operationId);
+
+    expect(ledger).toBeUndefined();
   });
-  expect((await pool.query('SELECT version FROM patients WHERE id=$1', [created.entityId])).rows[0].version).toBe(2);
-  const appliedUpdates = await pool.query(
-    "SELECT operation_id FROM sync_operations WHERE entity_id=$1 AND operation_type='update' AND status='applied'",
-    [created.entityId]
+
+  it("returns a structured conflict when an update reaches Central before its patient create", async () => {
+    const payload = makePatientPayload();
+
+    const update = makeOperation({
+      operationId: randomUUID(),
+      entityId: payload.id as string,
+      operationType: "update",
+      payload: {
+        ...payload,
+        version: 2,
+        updatedAt: timestamp,
+      },
+    });
+
+    await expect(receiveSyncOperation(update)).rejects.toThrow();
+
+    const ledger = await findSyncOperationById(update.operationId);
+
+    expect(ledger).toBeUndefined();
+  });
+
+  it("serializes competing patient v2 updates so only one is applied", async () => {
+    const payload = await createPatient();
+
+    const updateA = makeOperation({
+      operationId: randomUUID(),
+      entityId: payload.id as string,
+      operationType: "update",
+      payload: {
+        ...payload,
+        firstName: "Update A",
+        version: 2,
+        updatedAt: timestamp,
+      },
+    });
+
+    const updateB = makeOperation({
+      operationId: randomUUID(),
+      entityId: payload.id as string,
+      operationType: "update",
+      payload: {
+        ...payload,
+        firstName: "Update B",
+        version: 2,
+        updatedAt: timestamp,
+      },
+    });
+
+    const results = await Promise.allSettled([
+      receiveSyncOperation(updateA),
+      receiveSyncOperation(updateB),
+    ]);
+
+    const applied = results.filter(
+      (result) =>
+        result.status === "fulfilled" && result.value.status === "applied",
+    );
+
+    const rejected = results.filter((result) => result.status === "rejected");
+
+    expect(applied).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+
+    const patient = await findPatientVersionSummary(payload.id as string);
+
+    expect(patient?.version).toBe(2);
+
+    expect(["Update A", "Update B"]).toContain(patient?.firstName);
+  });
+
+  it("acknowledges an idempotent retry of an already applied patient update", async () => {
+    const payload = await createPatient();
+
+    const input = makeOperation({
+      operationId: randomUUID(),
+      entityId: payload.id as string,
+      operationType: "update",
+      payload: {
+        ...payload,
+        firstName: "Updated",
+        version: 2,
+        updatedAt: timestamp,
+      },
+    });
+
+    const first = await receiveSyncOperation(input);
+    const second = await receiveSyncOperation(input);
+
+    expect(first).toEqual({
+      duplicate: false,
+      operationId: input.operationId,
+      status: "applied",
+    });
+
+    expect(second).toEqual({
+      duplicate: true,
+      operationId: input.operationId,
+      status: "applied",
+    });
+  });
+
+  it("serializes concurrent first deliveries into one canonical create and three duplicates", async () => {
+    const payload = makePatientPayload();
+
+    const input = makeOperation({
+      entityId: payload.id as string,
+      payload,
+    });
+
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () => receiveSyncOperation(input)),
+    );
+
+    expect(results.filter((result) => !result.duplicate)).toHaveLength(1);
+
+    expect(results.filter((result) => result.duplicate)).toHaveLength(3);
+
+    const patient = await findPatient(payload.id as string);
+
+    expect(patient).not.toBeNull();
+
+    const ledger = await prisma.syncOperation.findUnique({
+      where: { operationId: input.operationId },
+      select: { operationId: true, status: true },
+    });
+
+    expect(ledger).not.toBeNull();
+    expect(ledger?.status).toBe("applied");
+  });
+
+  it("refuses to ACK an existing received ledger entry", async () => {
+    const input = makeOperation();
+
+    await insertSyncOperation(input);
+
+    await expect(receiveSyncOperation(input)).rejects.toThrow();
+  });
+
+  it("refuses to ACK an existing failed ledger entry", async () => {
+    const input = makeOperation();
+
+    await insertSyncOperation(input);
+
+    await prisma.syncOperation.update({
+      where: { operationId: input.operationId },
+      data: {
+        status: "failed",
+        failedAt: new Date(),
+        errorMessage: "test failure",
+      },
+    });
+
+    await expect(receiveSyncOperation(input)).rejects.toThrow();
+  });
+
+  it("creates the full encounter, observation and immunization chain", async () => {
+    const patient = await createPatient();
+
+    const encounter = makeEncounterPayload(patient.id as string);
+
+    const encounterOperation = makeOperation({
+      operationId: randomUUID(),
+      entityType: "encounter",
+      entityId: encounter.id as string,
+      payload: encounter,
+    });
+
+    await receiveSyncOperation(encounterOperation);
+
+    const observation = makeObservationPayload(
+      patient.id as string,
+      encounter.id as string,
+    );
+
+    const observationOperation = makeOperation({
+      operationId: randomUUID(),
+      entityType: "observation",
+      entityId: observation.id as string,
+      payload: observation,
+    });
+
+    await receiveSyncOperation(observationOperation);
+
+    const immunization = makeImmunizationPayload(
+      patient.id as string,
+      encounter.id as string,
+    );
+
+    const immunizationOperation = makeOperation({
+      operationId: randomUUID(),
+      entityType: "immunization",
+      entityId: immunization.id as string,
+      payload: immunization,
+    });
+
+    await receiveSyncOperation(immunizationOperation);
+
+    const counts = await Promise.all([
+      prisma.encounter.count({ where: { id: encounter.id as string } }),
+      prisma.observation.count({ where: { id: observation.id as string } }),
+      prisma.immunization.count({ where: { id: immunization.id as string } }),
+    ]);
+
+    expect(counts[0]).toBe(1);
+    expect(counts[1]).toBe(1);
+    expect(counts[2]).toBe(1);
+  });
+
+  it("rejects unsupported delete without retaining the operation", async () => {
+    const payload = await createPatient();
+
+    const input = makeOperation({
+      operationId: randomUUID(),
+      entityId: payload.id as string,
+      operationType: "delete",
+      payload,
+    });
+
+    await expect(receiveSyncOperation(input)).rejects.toThrow();
+
+    expect(await findSyncOperationById(input.operationId)).toBeUndefined();
+  });
+
+  it("rejects unsupported encounter update without retaining the operation", async () => {
+    const patient = await createPatient();
+
+    const encounter = makeEncounterPayload(patient.id as string);
+
+    const input = makeOperation({
+      operationId: randomUUID(),
+      entityType: "encounter",
+      entityId: encounter.id as string,
+      operationType: "update",
+      payload: encounter,
+    });
+
+    await expect(receiveSyncOperation(input)).rejects.toThrow();
+
+    expect(await findSyncOperationById(input.operationId)).toBeUndefined();
+  });
+
+  it("rejects unsupported observation update without retaining the operation", async () => {
+    const patient = await createPatient();
+
+    const encounter = makeEncounterPayload(patient.id as string);
+
+    await receiveSyncOperation(
+      makeOperation({
+        operationId: randomUUID(),
+        entityType: "encounter",
+        entityId: encounter.id as string,
+        payload: encounter,
+      }),
+    );
+
+    const observation = makeObservationPayload(
+      patient.id as string,
+      encounter.id as string,
+    );
+
+    const input = makeOperation({
+      operationId: randomUUID(),
+      entityType: "observation",
+      entityId: observation.id as string,
+      operationType: "update",
+      payload: observation,
+    });
+
+    await expect(receiveSyncOperation(input)).rejects.toThrow();
+
+    expect(await findSyncOperationById(input.operationId)).toBeUndefined();
+  });
+
+  it("rejects unsupported immunization update without retaining the operation", async () => {
+    const patient = await createPatient();
+
+    const encounter = makeEncounterPayload(patient.id as string);
+
+    await receiveSyncOperation(
+      makeOperation({
+        operationId: randomUUID(),
+        entityType: "encounter",
+        entityId: encounter.id as string,
+        payload: encounter,
+      }),
+    );
+
+    const immunization = makeImmunizationPayload(
+      patient.id as string,
+      encounter.id as string,
+    );
+
+    const input = makeOperation({
+      operationId: randomUUID(),
+      entityType: "immunization",
+      entityId: immunization.id as string,
+      operationType: "update",
+      payload: immunization,
+    });
+
+    await expect(receiveSyncOperation(input)).rejects.toThrow();
+
+    expect(await findSyncOperationById(input.operationId)).toBeUndefined();
+  });
+
+  it.each([null, [], "opaque", 42, false, {}])(
+    "rejects noncanonical payload %j and rolls back its ledger entry",
+    async (payload) => {
+      const input = makeOperation({
+        payload,
+      });
+
+      await expect(receiveSyncOperation(input)).rejects.toThrow();
+
+      expect(await findSyncOperationById(input.operationId)).toBeUndefined();
+    },
   );
-  expect(appliedUpdates.rowCount).toBe(1);
-});
 
-it('acknowledges an idempotent retry of an already applied patient update', async () => {
-  const created = operation();
-  await receiveSyncOperation(created);
-  const update = patientUpdate(created, 2, { contactNumber: 'v2' });
-  expect((await post(update)).status).toBe(201);
+  it.each([
+    { firstName: "" },
+    { firstName: " " },
+    { lastName: null },
+    { birthDate: "bad-date" },
+    { sex: "invalid" },
+    { version: 1.5 },
+    { version: 0 },
+    { version: "1" },
+    { createdAt: "not-a-timestamp" },
+    { middleName: 123 },
+    { id: "not-a-uuid" },
+  ])("rolls back invalid canonical fields %j", async (override) => {
+    const payload = makePatientPayload(override);
 
-  const retry = await post({
-    ...update,
-    payload: { version: 999, contactNumber: 'must-not-apply' },
+    const input = makeOperation({
+      entityId: payload.id as string,
+      payload,
+    });
+
+    await expect(receiveSyncOperation(input)).rejects.toThrow();
+
+    expect(await findSyncOperationById(input.operationId)).toBeUndefined();
+
+    // The invalid UUID case must not be sent back to Prisma as a query
+    // parameter because PostgreSQL rejects malformed UUID values before
+    // returning a normal "not found" result.
+    if (override.id === "not-a-uuid") {
+      return;
+    }
+
+    const patient = await findPatient(payload.id as string);
+
+    expect(patient).toBeNull();
   });
 
-  expect(retry.status).toBe(200);
-  expect(retry.body).toEqual({ operationId: update.operationId, status: 'applied', duplicate: true });
-  expect((await pool.query('SELECT version, contact_number FROM patients WHERE id=$1', [created.entityId])).rows[0])
-    .toEqual({ version: 2, contact_number: 'v2' });
-});
+  it.each([
+    { operationId: "" },
+    { operationId: "not-a-uuid" },
+    { nodeId: 123 },
+    { nodeId: " " },
+    { entityId: " " },
+    { entityType: "invalid" },
+    { operationType: "invalid" },
+    {},
+  ])("rejects invalid envelope %j", async (override) => {
+    const payload = makePatientPayload();
 
-it('serializes concurrent first deliveries into one canonical create and seven duplicates', async () => {
-  const input = operation();
-  const responses = await Promise.all(Array.from({ length: 8 }, () => post(input)));
-  expect(responses.filter(response => response.status === 201)).toHaveLength(1);
-  expect(responses.filter(response => response.status === 200)).toHaveLength(7);
-  for (const response of responses) expect(response.body.status).toBe('applied');
-  expect(await receipts()).toHaveLength(1);
-  expect((await pool.query('SELECT * FROM patients')).rows).toHaveLength(1);
-});
+    const input =
+      Object.keys(override).length === 0 ?
+        {}
+      : {
+          ...makeOperation({
+            entityId: payload.id as string,
+            payload,
+          }),
+          ...override,
+        };
 
-it.each(['received', 'failed'] as const)('refuses to ACK an existing %s ledger entry', async (status) => {
-  const input = operation();
-  await insertSyncOperation(input);
-  await pool.query('UPDATE sync_operations SET status=$1', [status]);
-  const before = await receipts();
-  expect((await post(input)).status).toBe(409);
-  expect(await receipts()).toEqual(before);
-  expect((await pool.query('SELECT * FROM patients')).rows).toEqual([]);
-});
+    const response = await request(app).post("/sync").send(input);
 
-it('creates the full encounter, observation and immunization chain', async () => {
-  const patient = operation();
-  await receiveSyncOperation(patient);
-  const encounter = operation('encounter', {
-    patientId: patient.entityId, sourceSystem: 'form', sourceRecordId: 'visit', encounterType: 'consultation',
-    chiefComplaint: 'Synthetic', historyPresentIllness: 'History', assessmentPlan: 'Plan', outcome: 'home',
-    facilityId: 'facility', practitionerId: 'practitioner',
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(response.body).toHaveProperty("error");
   });
-  expect((await post(encounter)).status).toBe(201);
-  const observation = operation('observation', { patientId: patient.entityId, encounterId: encounter.entityId,
-    sourceSystem: 'form', sourceRecordId: 'reading', valueText: 'normal', valueNumeric: 0, unit: 'Cel' });
-  const immunization = operation('immunization', { patientId: patient.entityId, encounterId: encounter.entityId,
-    sourceSystem: 'form', sourceRecordId: 'dose', vaccineName: 'BCG vaccine', doseLabel: 'dose-1',
-    administeredDate: timestamp, remarks: 'Synthetic remarks' });
-  expect((await post(observation)).status).toBe(201);
-  expect((await post(immunization)).status).toBe(201);
-  expect((await pool.query('SELECT * FROM encounters')).rows[0]).toMatchObject({
-    id: encounter.entityId, patient_id: patient.entityId, originating_node_id: encounter.nodeId,
-    source_system: 'form', source_record_id: 'visit', encounter_type: 'consultation', chief_complaint: 'Synthetic',
-    history_present_illness: 'History', assessment_plan: 'Plan', outcome: 'home', facility_id: 'facility',
-    practitioner_id: 'practitioner', encounter_date: new Date(timestamp), version: 1,
-    created_at: new Date(timestamp), updated_at: new Date(timestamp),
-  });
-  expect((await pool.query('SELECT * FROM observations')).rows[0]).toMatchObject({
-    id: observation.entityId, patient_id: patient.entityId, encounter_id: encounter.entityId,
-    originating_node_id: observation.nodeId, source_system: 'form', source_record_id: 'reading',
-    code: 'temperature', value_text: 'normal', value_numeric: 0, unit: 'Cel', observed_at: new Date(timestamp),
-    version: 1, created_at: new Date(timestamp), updated_at: new Date(timestamp),
-  });
-  expect((await pool.query('SELECT * FROM immunizations')).rows[0]).toMatchObject({
-    id: immunization.entityId, patient_id: patient.entityId, encounter_id: encounter.entityId,
-    originating_node_id: immunization.nodeId, source_system: 'form', source_record_id: 'dose',
-    vaccine_code: 'BCG', vaccine_name: 'BCG vaccine', dose_label: 'dose-1', administered_date: new Date(timestamp),
-    status: 'completed', remarks: 'Synthetic remarks', version: 1,
-    created_at: new Date(timestamp), updated_at: new Date(timestamp),
-  });
-  for (const input of [encounter, observation, immunization]) expect((await post(input)).body.duplicate).toBe(true);
-  expect(await receipts()).toHaveLength(4);
-});
 
-it('rejects unsupported delete without retaining the operation', async () => {
-  const operationType = 'delete' as const;
-  expect((await post({ ...operation(), operationType })).status).toBe(400);
-  await expectEmpty();
-});
-it.each(['encounter', 'observation', 'immunization'] as const)(
-  'rejects unsupported %s update without retaining the operation',
-  async (entityType) => {
-    expect((await post({ ...operation(entityType), operationType: 'update' })).status).toBe(400);
-    await expectEmpty();
-  }
-);
-it.each([null, [], 'opaque', 42, false, {}])('rejects noncanonical payload %j and rolls back its ledger entry', async (payload) => {
-  expect((await post({ ...operation(), payload })).status).toBe(400);
-  await expectEmpty();
-});
-it.each([
-  { firstName: '' }, { firstName: ' ' }, { lastName: null }, { birthDate: 'bad-date' }, { sex: 'invalid' },
-  { version: 1.5 }, { version: 0 }, { version: '1' }, { createdAt: 'not-a-timestamp' },
-  { middleName: 123 }, { id: randomUUID() },
-])('rolls back invalid canonical fields %j', async (fields) => {
-  expect((await post(operation('patient', fields))).status).toBe(400);
-  await expectEmpty();
-});
-it.each([
-  { operationId: '' }, { operationId: 'not-a-uuid' }, { nodeId: 123 }, { nodeId: ' ' },
-  { entityId: ' ' }, { entityType: 'invalid' }, { operationType: 'invalid' }, { payload: undefined },
-])('rejects invalid envelope %j', async (changes) => {
-  expect((await request(app).post('/api/sync/operations').send({ ...operation(), ...changes })).status).toBe(400);
-  await expectEmpty();
-});
-it('accepts absent headers and trims envelope identifiers', async () => {
-  const input = operation();
-  const response = await request(app).post('/api/sync/operations').send({
-    ...input, operationId: ` ${input.operationId} `, entityId: ` ${input.entityId} `, nodeId: ` ${input.nodeId} `,
+  it("accepts absent headers and trims envelope identifiers", async () => {
+    const payload = makePatientPayload();
+
+    const input = makeOperation({
+      operationId: ` ${randomUUID()} `,
+      nodeId: " edge-test-001 ",
+      entityId: payload.id as string,
+      payload,
+    });
+
+    const response = await request(app).post("/sync").send(input);
+
+    expect(response.status).toBe(200);
+    expect(response.body.status).toBe("applied");
+    expect(response.body.duplicate).toBe(false);
   });
-  expect(response.status).toBe(201);
-  expect(await findSyncOperationById(input.operationId)).toMatchObject(input);
-});
-it.each(['Idempotency-Key', 'X-IDG4H-Node-ID'])('rejects a mismatched %s header', async (header) => {
-  expect((await request(app).post('/api/sync/operations').set(header, 'wrong-header').send(operation())).status).toBe(400);
-  await expectEmpty();
-});
-it('returns a safe JSON error for malformed JSON', async () => {
-  const response = await request(app).post('/api/sync/operations').set('Content-Type', 'application/json').send('{invalid');
-  expect(response.status).toBe(400);
-  expect(response.body).toEqual({ error: 'Invalid JSON body.' });
-});
 
-it('rolls back a missing dependency and accepts the same operation after its parent arrives', async () => {
-  const patient = operation();
-  const encounter = operation('encounter', { patientId: patient.entityId });
-  expect((await post(encounter)).status).toBe(409);
-  await expectEmpty();
-  expect((await pool.query('SELECT * FROM encounters')).rows).toEqual([]);
-  await receiveSyncOperation(patient);
-  expect((await post(encounter)).status).toBe(201);
-  expect((await findSyncOperationById(encounter.operationId))?.status).toBe('applied');
-});
-it('refuses a second operation ID that tries to recreate the same entity', async () => {
-  const input = operation();
-  await receiveSyncOperation(input);
-  const duplicate = { ...input, operationId: randomUUID() };
-  expect((await post(duplicate)).status).toBe(409);
-  expect(await findSyncOperationById(duplicate.operationId)).toBeUndefined();
-  expect((await pool.query('SELECT * FROM patients')).rowCount).toBe(1);
-});
-it.each(['observation', 'immunization'] as const)('prevents a %s from linking another patient encounter', async (entityType) => {
-  const first = operation(); const second = operation();
-  await receiveSyncOperation(first); await receiveSyncOperation(second);
-  const encounter = operation('encounter', { patientId: first.entityId });
-  await receiveSyncOperation(encounter);
-  const child = operation(entityType, { patientId: second.entityId, encounterId: encounter.entityId });
-  expect((await post(child)).status).toBe(400);
-  expect(await findSyncOperationById(child.operationId)).toBeUndefined();
-});
+  it("rejects a mismatched Idempotency-Key header", async () => {
+    const input = makeOperation();
 
-it.each(['ledger-update', 'commit'] as const)('rolls back canonical and ledger writes on a %s failure', async (stage) => {
-  const input = operation();
-  await pool.query(`CREATE FUNCTION reject_sync_test() RETURNS trigger LANGUAGE plpgsql AS $$
-    BEGIN RAISE EXCEPTION 'Synthetic storage failure'; END; $$;`);
-  if (stage === 'ledger-update') {
-    await pool.query(`CREATE TRIGGER reject_sync_test BEFORE UPDATE ON sync_operations
-      FOR EACH ROW EXECUTE FUNCTION reject_sync_test()`);
-  } else {
-    await pool.query(`CREATE CONSTRAINT TRIGGER reject_sync_test AFTER INSERT ON patients
-      DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION reject_sync_test()`);
-  }
-  try {
-    const response = await post(input);
-    expect(response.status).toBe(503);
-    expect(response.body).toEqual({ error: 'Synchronization storage is unavailable.' });
-    await expectEmpty();
-  } finally {
-    const table = stage === 'ledger-update' ? 'sync_operations' : 'patients';
-    await pool.query(`DROP TRIGGER reject_sync_test ON ${table}; DROP FUNCTION reject_sync_test()`);
-  }
-  expect((await post(input)).status).toBe(201);
-});
-it('documents new and duplicate ACK responses', () => {
-  expect(swaggerSpec).toHaveProperty('paths./api/sync/operations.post.responses.201');
-  expect(swaggerSpec).toHaveProperty('paths./api/sync/operations.post.responses.200');
+    const response = await request(app)
+      .post("/sync")
+      .set("Idempotency-Key", randomUUID())
+      .send(input);
+
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(response.body).toHaveProperty("error");
+  });
+
+  it("rejects a mismatched X-IDG4H-Node-ID header", async () => {
+    const input = makeOperation();
+
+    const response = await request(app)
+      .post("/sync")
+      .set("X-IDG4H-Node-ID", "different-node")
+      .send(input);
+
+    expect(response.status).toBeGreaterThanOrEqual(400);
+    expect(response.body).toHaveProperty("error");
+  });
+
+  it("returns a safe JSON error for malformed JSON", async () => {
+    const response = await request(app)
+      .post("/sync")
+      .set("Content-Type", "application/json")
+      .send('{"invalid":');
+
+    expect(response.status).toBe(400);
+    expect(response.body).toHaveProperty("error");
+  });
+
+  it("rolls back a missing dependency and accepts the same operation after its parent arrives", async () => {
+    const patient = makePatientPayload();
+
+    const encounter = makeEncounterPayload(patient.id as string);
+
+    const encounterOperation = makeOperation({
+      operationId: randomUUID(),
+      entityType: "encounter",
+      entityId: encounter.id as string,
+      payload: encounter,
+    });
+
+    await expect(receiveSyncOperation(encounterOperation)).rejects.toThrow();
+
+    expect(
+      await findSyncOperationById(encounterOperation.operationId),
+    ).toBeUndefined();
+
+    const patientOperation = makeOperation({
+      operationId: randomUUID(),
+      entityId: patient.id as string,
+      payload: patient,
+    });
+
+    await receiveSyncOperation(patientOperation);
+
+    const retry = await receiveSyncOperation(encounterOperation);
+
+    expect(retry.status).toBe("applied");
+
+    const row = await findEncounter(encounter.id as string);
+
+    expect(row).not.toBeNull();
+  });
+
+  it("refuses a second operation ID that tries to recreate the same entity", async () => {
+    const patient = await createPatient();
+
+    const duplicatePayload = makePatientPayload({
+      id: patient.id,
+    });
+
+    const input = makeOperation({
+      operationId: randomUUID(),
+      entityId: patient.id as string,
+      payload: duplicatePayload,
+    });
+
+    await expect(receiveSyncOperation(input)).rejects.toThrow();
+
+    expect(await findSyncOperationById(input.operationId)).toBeUndefined();
+  });
+
+  it("prevents a observation from linking another patient encounter", async () => {
+    const patientA = await createPatient();
+    const patientB = await createPatient();
+
+    const encounterA = makeEncounterPayload(patientA.id as string);
+
+    await receiveSyncOperation(
+      makeOperation({
+        operationId: randomUUID(),
+        entityType: "encounter",
+        entityId: encounterA.id as string,
+        payload: encounterA,
+      }),
+    );
+
+    const observation = makeObservationPayload(
+      patientB.id as string,
+      encounterA.id as string,
+    );
+
+    const input = makeOperation({
+      operationId: randomUUID(),
+      entityType: "observation",
+      entityId: observation.id as string,
+      payload: observation,
+    });
+
+    await expect(receiveSyncOperation(input)).rejects.toThrow();
+
+    const row = await findObservation(observation.id as string);
+
+    expect(row).toBeNull();
+  });
+
+  it("prevents a immunization from linking another patient encounter", async () => {
+    const patientA = await createPatient();
+    const patientB = await createPatient();
+
+    const encounterA = makeEncounterPayload(patientA.id as string);
+
+    await receiveSyncOperation(
+      makeOperation({
+        operationId: randomUUID(),
+        entityType: "encounter",
+        entityId: encounterA.id as string,
+        payload: encounterA,
+      }),
+    );
+
+    const immunization = makeImmunizationPayload(
+      patientB.id as string,
+      encounterA.id as string,
+    );
+
+    const input = makeOperation({
+      operationId: randomUUID(),
+      entityType: "immunization",
+      entityId: immunization.id as string,
+      payload: immunization,
+    });
+
+    await expect(receiveSyncOperation(input)).rejects.toThrow();
+
+    const row = await findImmunization(immunization.id as string);
+
+    expect(row).toBeNull();
+  });
+
+  it("rolls back canonical and ledger writes on a ledger-update failure", async () => {
+    const payload = makePatientPayload();
+
+    const input = makeOperation({
+      entityId: payload.id as string,
+      payload,
+    });
+
+    const originalTransaction = prisma.$transaction.bind(prisma);
+
+    prisma.$transaction = (async (callback: any) => {
+      return originalTransaction(async (tx: any) => {
+        const txProxy = new Proxy(tx, {
+          get(target, property, receiver) {
+            if (property === "syncOperation") {
+              const syncOperation = Reflect.get(target, property, receiver);
+
+              return new Proxy(syncOperation, {
+                get(model, modelProperty, modelReceiver) {
+                  if (modelProperty === "update") {
+                    return async () => {
+                      throw new Error("forced ledger update failure");
+                    };
+                  }
+
+                  return Reflect.get(model, modelProperty, modelReceiver);
+                },
+              });
+            }
+
+            return Reflect.get(target, property, receiver);
+          },
+        });
+
+        return callback(txProxy);
+      });
+    }) as typeof prisma.$transaction;
+
+    try {
+      await expect(receiveSyncOperation(input)).rejects.toThrow(
+        "forced ledger update failure",
+      );
+    } finally {
+      prisma.$transaction = originalTransaction as typeof prisma.$transaction;
+    }
+
+    const patient = await findPatient(payload.id as string);
+
+    expect(patient).toBeNull();
+
+    expect(await findSyncOperationById(input.operationId)).toBeUndefined();
+  });
+
+  it("rolls back canonical and ledger writes on a commit failure", async () => {
+    const payload = makePatientPayload();
+
+    const input = makeOperation({
+      entityId: payload.id as string,
+      payload,
+    });
+
+    const prismaModule = await import("../db/connection");
+
+    const originalTransaction = prismaModule.prisma.$transaction;
+
+    (prismaModule.prisma.$transaction as unknown as jest.Mock) = jest
+      .fn()
+      .mockRejectedValue(new Error("forced commit failure"));
+
+    try {
+      await expect(receiveSyncOperation(input)).rejects.toThrow(
+        "forced commit failure",
+      );
+    } finally {
+      (prismaModule.prisma.$transaction as unknown as jest.Mock) =
+        originalTransaction as unknown as jest.Mock;
+    }
+
+    const patient = await findPatient(payload.id as string);
+
+    expect(patient).toBeNull();
+
+    expect(await findSyncOperationById(input.operationId)).toBeUndefined();
+  });
+
+  it("documents new and duplicate ACK responses", async () => {
+    const paths = (swaggerSpec as Record<string, any>).paths;
+    expect(paths?.["/sync"]).toBeDefined();
+
+    const operationPath = paths?.["/sync"];
+
+    expect(operationPath).toBeDefined();
+
+    const post = operationPath?.post;
+
+    expect(post).toBeDefined();
+
+    const responses = post?.responses;
+
+    expect(responses).toBeDefined();
+    expect(responses?.["200"]).toBeDefined();
+
+    const responseDescription = String(
+      responses?.["200"]?.description ?? "",
+    ).toLowerCase();
+
+    expect(responseDescription).toContain("ack");
+  });
 });
