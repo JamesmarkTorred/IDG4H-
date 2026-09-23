@@ -13,6 +13,11 @@ import {
   parseSyncOperation,
 } from '../services/syncValidation';
 
+import {
+  authenticateNode,
+  NodeAuthenticationError,
+} from '../nodes/services/nodeAuthenticationService';
+
 const router = Router();
 
 interface SyncConflictResponse {
@@ -33,30 +38,64 @@ interface SyncConflictResponse {
  * /sync:
  *   post:
  *     summary: Atomically apply an Edge synchronization operation
- *     description: Commits the ledger and canonical mutation together before acknowledging. Patient updates apply only when their version is exactly one greater than the current canonical version. Already applied operation IDs are acknowledged without reapplying. Delete and non-patient update are not implemented.
+ *     description: Authenticates the Edge Node, then atomically commits the synchronization ledger entry and canonical mutation. Patient updates apply only when their version is exactly one greater than the current canonical version. Already applied operation IDs are acknowledged without reapplying. Delete and non-patient update are not implemented.
  *     parameters:
  *       - in: header
  *         name: Idempotency-Key
  *         required: false
- *         schema: { type: string }
+ *         schema:
+ *           type: string
+ *         description: Optional idempotency key. When provided, it must match operationId.
  *       - in: header
  *         name: X-IDG4H-Node-ID
- *         required: false
- *         schema: { type: string }
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Registered Edge Node identifier.
+ *       - in: header
+ *         name: X-IDG4H-Node-Token
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Authentication token issued during Edge Node registration.
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
  *           schema:
  *             type: object
- *             required: [operationId, nodeId, entityType, entityId, operationType, payload]
+ *             required:
+ *               - operationId
+ *               - nodeId
+ *               - entityType
+ *               - entityId
+ *               - operationType
+ *               - payload
  *             properties:
- *               operationId: { type: string, format: uuid }
- *               nodeId: { type: string }
- *               entityType: { type: string, enum: [patient, encounter, observation, immunization] }
- *               entityId: { type: string, format: uuid }
- *               operationType: { type: string, enum: [create, update, delete] }
- *               payload: { type: object, additionalProperties: true }
+ *               operationId:
+ *                 type: string
+ *                 format: uuid
+ *               nodeId:
+ *                 type: string
+ *               entityType:
+ *                 type: string
+ *                 enum:
+ *                   - patient
+ *                   - encounter
+ *                   - observation
+ *                   - immunization
+ *               entityId:
+ *                 type: string
+ *                 format: uuid
+ *               operationType:
+ *                 type: string
+ *                 enum:
+ *                   - create
+ *                   - update
+ *                   - delete
+ *               payload:
+ *                 type: object
+ *                 additionalProperties: true
  *     responses:
  *       200:
  *         description: Canonical mutation committed or previously applied operation acknowledged without reprocessing
@@ -64,13 +103,23 @@ interface SyncConflictResponse {
  *           application/json:
  *             schema:
  *               type: object
- *               required: [operationId, status, duplicate]
+ *               required:
+ *                 - operationId
+ *                 - status
+ *                 - duplicate
  *               properties:
- *                 operationId: { type: string }
- *                 status: { type: string, enum: [applied] }
- *                 duplicate: { type: boolean }
+ *                 operationId:
+ *                   type: string
+ *                 status:
+ *                   type: string
+ *                   enum:
+ *                     - applied
+ *                 duplicate:
+ *                   type: boolean
  *       400:
  *         description: Invalid payload, unsupported operation type, or mismatched headers
+ *       401:
+ *         description: Edge Node authentication failed
  *       409:
  *         description: Patient version conflict, unapplied existing ledger entry, missing dependency, or duplicate canonical entity
  *       503:
@@ -86,6 +135,50 @@ router.post<
 
     const idempotencyKey = req.get('Idempotency-Key');
     const nodeHeader = req.get('X-IDG4H-Node-ID');
+    const nodeToken = req.get('X-IDG4H-Node-Token');
+
+    /*
+     * Authentication headers are required for every synchronization
+     * request.
+     *
+     * Missing credentials are intentionally handled as the same
+     * authentication failure as invalid credentials.
+     */
+    if (
+      nodeHeader === undefined ||
+      nodeToken === undefined
+    ) {
+      throw new NodeAuthenticationError(
+        'Node authentication failed.',
+      );
+    }
+
+    /*
+     * Authenticate the Edge Node before accepting the operation.
+     *
+     * This verifies:
+     * - the node exists
+     * - the node is active
+     * - an authentication token is stored
+     * - the supplied token matches the stored hash
+     *
+     * A successful authentication also updates lastSeenAt.
+     */
+    await authenticateNode(nodeHeader, nodeToken);
+
+    /*
+     * The authenticated Node ID must match the nodeId declared
+     * inside the synchronization envelope.
+     *
+     * This check occurs after authentication so an unknown node
+     * correctly produces a 401 instead of a body/header mismatch
+     * response.
+     */
+    if (nodeHeader !== input.nodeId) {
+      throw new InvalidSyncOperationError(
+        'X-IDG4H-Node-ID does not match nodeId.',
+      );
+    }
 
     if (
       idempotencyKey !== undefined &&
@@ -93,15 +186,6 @@ router.post<
     ) {
       throw new InvalidSyncOperationError(
         'Idempotency-Key does not match operationId.',
-      );
-    }
-
-    if (
-      nodeHeader !== undefined &&
-      nodeHeader !== input.nodeId
-    ) {
-      throw new InvalidSyncOperationError(
-        'X-IDG4H-Node-ID does not match nodeId.',
       );
     }
 
@@ -120,7 +204,11 @@ router.post<
         ? error.code
         : undefined;
 
-    if (error instanceof InvalidSyncOperationError) {
+    if (error instanceof NodeAuthenticationError) {
+      res.status(401).json({
+        error: 'Node authentication failed.',
+      });
+    } else if (error instanceof InvalidSyncOperationError) {
       res.status(400).json({
         error: error.message,
       });

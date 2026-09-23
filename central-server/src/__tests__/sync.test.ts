@@ -11,11 +11,39 @@ import type { SyncOperationInput } from "../domain";
 import swaggerSpec from "../docs/swagger";
 import { prisma } from "../db/connection";
 import { timestamp } from "./syncFixtures";
+import {
+  generateAuthToken,
+  hashAuthToken,
+} from "../nodes/services/nodeAuthToken";
+
+const syncTestNodeId = "edge-test-001";
+let syncTestAuthToken: string;
 
 beforeAll(async () => {
   // Prisma is used for test database access. The query below also verifies
   // that the migrated table is available before the suite starts.
   await prisma.syncOperation.count();
+
+  syncTestAuthToken = generateAuthToken();
+
+  await prisma.node.upsert({
+    where: {
+      nodeId: syncTestNodeId,
+    },
+    update: {
+      status: "active",
+      authTokenHash: hashAuthToken(syncTestAuthToken),
+    },
+    create: {
+      nodeId: syncTestNodeId,
+      name: "Sync Test Node",
+      facilityName: "Sync Test Facility",
+      address: "Sync Test Address",
+      registrationCodeHash: "unused-test-registration-code",
+      authTokenHash: hashAuthToken(syncTestAuthToken),
+      status: "active",
+    },
+  });
 });
 
 beforeEach(async () => {
@@ -29,6 +57,12 @@ beforeEach(async () => {
 });
 
 afterAll(async () => {
+  await prisma.node.deleteMany({
+    where: {
+      nodeId: syncTestNodeId,
+    },
+  });
+
   await prisma.$disconnect();
 });
 
@@ -212,6 +246,13 @@ function makeOperation(
   };
 }
 
+function authenticatedSyncRequest() {
+  return request(app)
+    .post("/sync")
+    .set("X-IDG4H-Node-ID", syncTestNodeId)
+    .set("X-IDG4H-Node-Token", syncTestAuthToken);
+}
+
 async function createPatient(
   overrides: Record<string, unknown> = {},
 ): Promise<Record<string, unknown>> {
@@ -238,7 +279,7 @@ describe("POST /sync", () => {
       payload,
     });
 
-    const response = await request(app).post("/sync").send(input);
+    const response = await authenticatedSyncRequest().send(input);
 
     expect(response.status).toBe(200);
     expect(response.body).toEqual({
@@ -280,7 +321,7 @@ describe("POST /sync", () => {
       payload,
     });
 
-    const first = await request(app).post("/sync").send(input);
+    const first = await authenticatedSyncRequest().send(input);
 
     expect(first.status).toBe(200);
     expect(first.body.duplicate).toBe(false);
@@ -290,9 +331,7 @@ describe("POST /sync", () => {
       firstName: "Changed",
     };
 
-    const retry = await request(app)
-      .post("/sync")
-      .send({
+    const retry = await authenticatedSyncRequest().send({
         ...input,
         payload: changedPayload,
       });
@@ -835,13 +874,13 @@ describe("POST /sync", () => {
           ...override,
         };
 
-    const response = await request(app).post("/sync").send(input);
+    const response = await authenticatedSyncRequest().send(input);
 
     expect(response.status).toBeGreaterThanOrEqual(400);
     expect(response.body).toHaveProperty("error");
   });
 
-  it("accepts absent headers and trims envelope identifiers", async () => {
+  it("accepts authenticated requests and trims envelope identifiers", async () => {
     const payload = makePatientPayload();
 
     const input = makeOperation({
@@ -851,7 +890,7 @@ describe("POST /sync", () => {
       payload,
     });
 
-    const response = await request(app).post("/sync").send(input);
+    const response = await authenticatedSyncRequest().send(input);
 
     expect(response.status).toBe(200);
     expect(response.body.status).toBe("applied");
@@ -861,8 +900,7 @@ describe("POST /sync", () => {
   it("rejects a mismatched Idempotency-Key header", async () => {
     const input = makeOperation();
 
-    const response = await request(app)
-      .post("/sync")
+    const response = await authenticatedSyncRequest()
       .set("Idempotency-Key", randomUUID())
       .send(input);
 
@@ -873,13 +911,68 @@ describe("POST /sync", () => {
   it("rejects a mismatched X-IDG4H-Node-ID header", async () => {
     const input = makeOperation();
 
-    const response = await request(app)
-      .post("/sync")
+    const response = await authenticatedSyncRequest()
       .set("X-IDG4H-Node-ID", "different-node")
       .send(input);
 
     expect(response.status).toBeGreaterThanOrEqual(400);
     expect(response.body).toHaveProperty("error");
+  });
+
+  it("rejects a sync request without an authentication token", async () => {
+    const payload = makePatientPayload();
+    const input = makeOperation({
+      entityId: payload.id as string,
+      payload,
+    });
+
+    const response = await request(app)
+      .post("/sync")
+      .set("X-IDG4H-Node-ID", syncTestNodeId)
+      .send(input);
+
+    expect(response.status).toBe(401);
+    expect(response.body).toEqual({
+      error: "Node authentication failed.",
+    });
+  });
+
+  it("rejects a sync request with an invalid authentication token", async () => {
+    const payload = makePatientPayload();
+    const input = makeOperation({
+      entityId: payload.id as string,
+      payload,
+    });
+
+    const response = await request(app)
+      .post("/sync")
+      .set("X-IDG4H-Node-ID", syncTestNodeId)
+      .set("X-IDG4H-Node-Token", generateAuthToken())
+      .send(input);
+
+    expect(response.status).toBe(401);
+    expect(response.body).toEqual({
+      error: "Node authentication failed.",
+    });
+  });
+
+  it("rejects a sync request for an unknown node", async () => {
+    const payload = makePatientPayload();
+    const input = makeOperation({
+      entityId: payload.id as string,
+      payload,
+    });
+
+    const response = await request(app)
+      .post("/sync")
+      .set("X-IDG4H-Node-ID", "unknown-sync-node")
+      .set("X-IDG4H-Node-Token", syncTestAuthToken)
+      .send(input);
+
+    expect(response.status).toBe(401);
+    expect(response.body).toEqual({
+      error: "Node authentication failed.",
+    });
   });
 
   it("returns a safe JSON error for malformed JSON", async () => {

@@ -1,9 +1,14 @@
 import express, { type ErrorRequestHandler } from 'express';
+
 import swaggerUi from 'swagger-ui-express';
 
 import swaggerSpec from './docs/swagger';
+
 import healthRouter from './routes/health';
+
 import syncRouter from './routes/sync';
+
+import nodesRouter from './nodes/routes/nodes';
 
 const app = express();
 
@@ -14,6 +19,8 @@ app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use('/health', healthRouter);
 
 app.use('/sync', syncRouter);
+
+app.use('/nodes', nodesRouter);
 
 const handleRequestError: ErrorRequestHandler = (
   error: unknown,
