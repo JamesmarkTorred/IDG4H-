@@ -1,0 +1,254 @@
+datasource db {
+  provider = "sqlite"
+}
+
+model patients {
+  id                       String  @id
+  source_system            String?
+  source_record_id         String?
+  node_id                  String
+  family_serial_no         String?
+  phic_no                  String?
+  last_name                String
+  first_name               String
+  middle_name              String?
+  suffix                   String?
+  birth_date               String
+  sex                      String
+  civil_status             String?
+  place_of_birth           String?
+  religion                 String?
+  educational_attainment   String?
+  contact_number           String?
+  address_line             String?
+  purok                    String?
+  barangay                 String?
+  municipality_city        String?
+  province                 String?
+  district                 String?
+  phic_membership_category String?
+  phic_membership_type     String?
+  employment_status        String?
+  occupation               String?
+  spouse_name              String?
+  spouse_birth_date        String?
+  spouse_occupation        String?
+  member_maiden_name       String?
+  father_name              String?
+  family_position          String?
+  version                  Int     @default(1)
+  created_at               String
+  updated_at               String
+
+  encounters    encounters[]
+  immunizations immunizations[]
+  observations  observations[]
+
+  @@index([birth_date], map: "idx_patients_birth_date")
+  @@index([last_name, first_name, birth_date], map: "idx_patients_name_birthdate")
+  @@index([family_serial_no], map: "idx_patients_family_serial_no")
+  @@index([phic_no], map: "idx_patients_phic_no")
+}
+
+model encounters {
+  id                      String  @id
+  patient_id              String
+  source_system           String?
+  source_record_id        String?
+  node_id                 String
+  encounter_date          String
+  encounter_type          String?
+  chief_complaint         String?
+  history_present_illness String?
+  assessment_plan         String?
+  outcome                 String?
+  facility_id             String?
+  practitioner_id         String?
+  version                 Int     @default(1)
+  created_at              String
+  updated_at              String
+
+  patients      patients        @relation(fields: [patient_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  immunizations immunizations[]
+  observations  observations[]
+
+  @@index([patient_id, encounter_date], map: "idx_encounters_patient_date")
+  @@index([encounter_date], map: "idx_encounters_date")
+  @@index([patient_id], map: "idx_encounters_patient")
+}
+
+model observations {
+  id               String  @id
+  patient_id       String
+  encounter_id     String?
+  source_system    String?
+  source_record_id String?
+  node_id          String
+  code             String
+  value_text       String?
+  value_numeric    Float?
+  unit             String?
+  observed_at      String
+  version          Int     @default(1)
+  created_at       String
+  updated_at       String
+
+  encounters encounters? @relation(fields: [encounter_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  patients   patients    @relation(fields: [patient_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@index([patient_id, code], map: "idx_observations_patient_code")
+  @@index([code], map: "idx_observations_code")
+  @@index([encounter_id], map: "idx_observations_encounter")
+  @@index([patient_id], map: "idx_observations_patient")
+}
+
+model immunizations {
+  id                String  @id
+  patient_id        String
+  encounter_id      String?
+  source_system     String?
+  source_record_id  String?
+  node_id           String
+  vaccine_code      String
+  vaccine_name      String?
+  dose_label        String?
+  administered_date String?
+  status            String  @default("completed")
+  remarks           String?
+  version           Int     @default(1)
+  created_at        String
+  updated_at        String
+
+  encounters encounters? @relation(fields: [encounter_id], references: [id], onDelete: SetNull, onUpdate: NoAction)
+  patients   patients    @relation(fields: [patient_id], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@index([patient_id, vaccine_code], map: "idx_immunizations_patient_vaccine")
+  @@index([vaccine_code], map: "idx_immunizations_vaccine")
+  @@index([encounter_id], map: "idx_immunizations_encounter")
+  @@index([patient_id], map: "idx_immunizations_patient")
+}
+
+model import_jobs {
+  id             String  @id
+  source_system  String
+  file_name      String
+  file_type      String
+  status         String
+  total_rows     Int     @default(0)
+  imported_rows  Int     @default(0)
+  candidate_rows Int     @default(0)
+  failed_rows    Int     @default(0)
+  started_at     String
+  completed_at   String?
+  error_message  String?
+
+  import_row_results import_row_results[]
+
+  @@index([source_system], map: "idx_import_jobs_source")
+  @@index([status], map: "idx_import_jobs_status")
+}
+
+model import_row_results {
+  id               String  @id
+  import_job_id    String
+  row_number       Int
+  status           String
+  source_record_id String?
+  entity_type      String?
+  local_entity_id  String?
+  raw_data         String
+  error_message    String?
+  created_at       String
+
+  import_jobs import_jobs @relation(fields: [import_job_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([status], map: "idx_import_rows_status")
+  @@index([import_job_id], map: "idx_import_rows_job")
+}
+
+model outbox {
+  id              String  @id
+  operation_id    String  @unique
+  node_id         String
+  entity_type     String
+  entity_id       String
+  operation_type  String
+  payload         String
+  status          String  @default("pending")
+  attempt_count   Int     @default(0)
+  next_attempt_at String?
+  last_attempt_at String?
+  last_error      String?
+  created_at      String
+  updated_at      String
+  acknowledged_at String?
+
+  @@index([created_at], map: "idx_outbox_created_at")
+  @@index([entity_type, entity_id], map: "idx_outbox_entity")
+  @@index([next_attempt_at], map: "idx_outbox_next_attempt")
+  @@index([status], map: "idx_outbox_status")
+}
+
+model users {
+  id            String @id
+  username      String @unique
+  password_hash String
+  is_active     Int    @default(1)
+  created_at    String
+  updated_at    String
+
+  auth_sessions auth_sessions[]
+  user_roles    user_roles[]
+}
+
+model roles {
+  id          String  @id
+  name        String  @unique
+  description String?
+
+  role_permissions role_permissions[]
+  user_roles       user_roles[]
+}
+
+model permissions {
+  id             String  @id
+  permission_key String  @unique
+  description    String?
+
+  role_permissions role_permissions[]
+}
+
+model user_roles {
+  user_id String
+  role_id String
+
+  users users @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  roles roles @relation(fields: [role_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([user_id, role_id])
+}
+
+model role_permissions {
+  role_id       String
+  permission_id String
+
+  roles       roles       @relation(fields: [role_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+  permissions permissions @relation(fields: [permission_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@id([role_id, permission_id])
+}
+
+model auth_sessions {
+  id           String  @id
+  user_id      String
+  token_hash   String  @unique
+  created_at   String
+  expires_at   String
+  last_seen_at String
+  revoked_at   String?
+
+  users users @relation(fields: [user_id], references: [id], onDelete: Cascade, onUpdate: NoAction)
+
+  @@index([expires_at], map: "idx_auth_sessions_expires")
+  @@index([user_id], map: "idx_auth_sessions_user")
+}

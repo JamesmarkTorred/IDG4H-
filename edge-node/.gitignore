@@ -1,0 +1,20 @@
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# SQLite database files
+data/*.sqlite
+data/*.sqlite-*
+data/*.db
+data/*.db-*
+
+# Logs
+*.log
+
+# Build output
+dist/
+coverage/
