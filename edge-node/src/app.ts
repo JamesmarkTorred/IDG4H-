@@ -1,27 +1,90 @@
-import express from 'express';
+import express, { type ErrorRequestHandler } from 'express';
+
 import swaggerUi from 'swagger-ui-express';
+
 import swaggerSpec from './docs/swagger';
-import { errorHandler } from './middleware/errorHandler';
-import authRouter from './routes/auth';
-import encounterRouter from './routes/encounters';
+
 import healthRouter from './routes/health';
-import importRouter from './routes/imports';
+import authRouter from './routes/auth';
 import patientRouter from './routes/patients';
+import encounterRouter from './routes/encounters';
+import importRouter from './routes/imports';
 
 const app = express();
 
+const allowedOrigins = new Set([
+  'http://localhost:1420',
+  'http://tauri.localhost',
+  'tauri://localhost',
+]);
+
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+
+  if (origin && allowedOrigins.has(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
+
+  res.setHeader(
+    'Access-Control-Allow-Headers',
+    'Content-Type, Authorization',
+  );
+
+  res.setHeader(
+    'Access-Control-Allow-Methods',
+    'GET, POST, PATCH, PUT, DELETE, OPTIONS',
+  );
+
+  if (req.method === 'OPTIONS') {
+    res.status(204).end();
+    return;
+  }
+
+  next();
+});
+
 app.use(express.json());
 
-// Swagger docs — paper-confirmed requirement (OpenAPI/Swagger spec)
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-// Routes mounted here as they're built
 app.use('/health', healthRouter);
+
 app.use('/api/auth', authRouter);
+
 app.use('/api/patients', patientRouter);
+
 app.use('/api', encounterRouter);
+
 app.use('/api', importRouter);
 
-app.use(errorHandler);
+const handleRequestError: ErrorRequestHandler = (
+  error: unknown,
+  _req,
+  res,
+  _next,
+) => {
+  const status =
+    typeof error === 'object' &&
+    error !== null &&
+    'status' in error
+      ? error.status
+      : undefined;
+
+  if (status === 400 || status === 413) {
+    res.status(status).json({
+      error:
+        status === 413
+          ? 'Request body is too large.'
+          : 'Invalid JSON body.',
+    });
+  } else {
+    res.status(500).json({
+      error: 'Internal server error.',
+    });
+  }
+};
+
+app.use(handleRequestError);
 
 export default app;
