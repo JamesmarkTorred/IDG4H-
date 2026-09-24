@@ -9,6 +9,9 @@ import authRouter from './routes/auth';
 import patientRouter from './routes/patients';
 import encounterRouter from './routes/encounters';
 import importRouter from './routes/imports';
+import nodeRegistrationRouter from './node/routes/nodeRegistration';
+
+import { errorHandler } from './middleware/errorHandler';
 
 const app = express();
 
@@ -46,11 +49,17 @@ app.use((req, res, next) => {
 
 app.use(express.json());
 
-app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.use(
+  '/api-docs',
+  swaggerUi.serve,
+  swaggerUi.setup(swaggerSpec),
+);
 
 app.use('/health', healthRouter);
 
 app.use('/api/auth', authRouter);
+
+app.use('/api/node', nodeRegistrationRouter);
 
 app.use('/api/patients', patientRouter);
 
@@ -58,33 +67,6 @@ app.use('/api', encounterRouter);
 
 app.use('/api', importRouter);
 
-const handleRequestError: ErrorRequestHandler = (
-  error: unknown,
-  _req,
-  res,
-  _next,
-) => {
-  const status =
-    typeof error === 'object' &&
-    error !== null &&
-    'status' in error
-      ? error.status
-      : undefined;
-
-  if (status === 400 || status === 413) {
-    res.status(status).json({
-      error:
-        status === 413
-          ? 'Request body is too large.'
-          : 'Invalid JSON body.',
-    });
-  } else {
-    res.status(500).json({
-      error: 'Internal server error.',
-    });
-  }
-};
-
-app.use(handleRequestError);
+app.use(errorHandler);
 
 export default app;

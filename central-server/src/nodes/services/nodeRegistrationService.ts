@@ -55,13 +55,11 @@ function requiredField(
 export async function registerNode(
   input: NodeRegistrationInput,
 ): Promise<RegisteredNode> {
-  const nodeId = requiredField(input.nodeId, 'nodeId');
-  const name = requiredField(input.name, 'name');
-  const facilityName = requiredField(
-    input.facilityName,
-    'facilityName',
+  const nodeId = requiredField(
+    input.nodeId,
+    'nodeId',
   );
-  const address = requiredField(input.address, 'address');
+
   const registrationCode = requiredField(
     input.registrationCode,
     'registrationCode',
@@ -105,9 +103,6 @@ export async function registerNode(
       nodeId,
     },
     data: {
-      name,
-      facilityName,
-      address,
       authTokenHash,
       status: 'active',
       registeredAt,

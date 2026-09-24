@@ -1,8 +1,5 @@
 export interface NodeRegistrationInput {
   nodeId: string;
-  name: string;
-  facilityName: string;
-  address: string;
   registrationCode: string;
 }
 

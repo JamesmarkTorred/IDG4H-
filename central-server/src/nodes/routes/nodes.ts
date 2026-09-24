@@ -8,13 +8,16 @@ import {
   registerNode,
 } from '../services/nodeRegistrationService';
 
+import {
+  issueNodeRegistrationCode,
+  NodeRegistrationCodeConflictError,
+  NodeRegistrationCodeValidationError,
+} from '../services/nodeRegistrationCodeService';
+
 const router = Router();
 
 interface NodeRegistrationRequestBody {
   nodeId?: unknown;
-  name?: unknown;
-  facilityName?: unknown;
-  address?: unknown;
   registrationCode?: unknown;
 }
 
@@ -32,23 +35,11 @@ interface NodeRegistrationRequestBody {
  *             type: object
  *             required:
  *               - nodeId
- *               - name
- *               - facilityName
- *               - address
  *               - registrationCode
  *             properties:
  *               nodeId:
  *                 type: string
  *                 example: edge-mainit-001
- *               name:
- *                 type: string
- *                 example: Mainit Edge Node
- *               facilityName:
- *                 type: string
- *                 example: Mainit Rural Health Unit
- *               address:
- *                 type: string
- *                 example: Mainit, Surigao del Norte
  *               registrationCode:
  *                 type: string
  *                 example: IDG4H-7K2M9Q4P8Z
@@ -83,9 +74,6 @@ router.post(
 
       const fields = [
         ['nodeId', body.nodeId],
-        ['name', body.name],
-        ['facilityName', body.facilityName],
-        ['address', body.address],
         ['registrationCode', body.registrationCode],
       ] as const;
 
@@ -103,10 +91,8 @@ router.post(
 
       const node = await registerNode({
         nodeId: body.nodeId as string,
-        name: body.name as string,
-        facilityName: body.facilityName as string,
-        address: body.address as string,
-        registrationCode: body.registrationCode as string,
+        registrationCode:
+          body.registrationCode as string,
       });
 
       res.status(201).json({
@@ -122,14 +108,18 @@ router.post(
         authToken: node.authToken,
       });
     } catch (error) {
-      if (error instanceof NodeRegistrationValidationError) {
+      if (
+        error instanceof NodeRegistrationValidationError
+      ) {
         res.status(400).json({
           error: error.message,
         });
         return;
       }
 
-      if (error instanceof NodeRegistrationCodeInvalidError) {
+      if (
+        error instanceof NodeRegistrationCodeInvalidError
+      ) {
         res.status(401).json({
           error: error.message,
         });
@@ -143,18 +133,88 @@ router.post(
         return;
       }
 
-      if (error instanceof NodeAlreadyRegisteredError) {
+      if (
+        error instanceof NodeAlreadyRegisteredError
+      ) {
         res.status(409).json({
           error: error.message,
         });
         return;
       }
 
+      console.error(
+        '[node-registration] unexpected error:',
+        error,
+      );
+
       res.status(503).json({
-        error: 'Node registration service is unavailable.',
+        error:
+          'Node registration service is unavailable.',
       });
     }
   },
 );
+
+router.post('/registration-code', async (req, res) => {
+  try {
+    const body = req.body as {
+      nodeId?: unknown;
+    };
+
+    if (
+      typeof body !== 'object' ||
+      body === null ||
+      Array.isArray(body)
+    ) {
+      res.status(400).json({
+        error: 'A JSON registration object is required.',
+      });
+      return;
+    }
+
+    if (
+      typeof body.nodeId !== 'string' ||
+      body.nodeId.trim().length === 0
+    ) {
+      res.status(400).json({
+        error: 'nodeId is required.',
+      });
+      return;
+    }
+
+    const registration = await issueNodeRegistrationCode(
+      body.nodeId,
+    );
+
+    res.status(201).json(registration);
+  } catch (error) {
+    if (
+      error instanceof NodeRegistrationCodeValidationError
+    ) {
+      res.status(400).json({
+        error: error.message,
+      });
+      return;
+    }
+
+    if (
+      error instanceof NodeRegistrationCodeConflictError
+    ) {
+      res.status(409).json({
+        error: error.message,
+      });
+      return;
+    }
+
+    console.error(
+      '[node-registration-code] unexpected error:',
+      error,
+    );
+
+    res.status(503).json({
+      error: 'Node registration code service is unavailable.',
+    });
+  }
+});
 
 export default router;
