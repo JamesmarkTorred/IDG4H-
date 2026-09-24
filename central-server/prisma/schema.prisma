@@ -13,7 +13,7 @@ model Node {
   name                 String
   facilityName         String    @map("facility_name")
   address              String
-  registrationCodeHash  String    @map("registration_code_hash")
+  registrationCodeHash String    @map("registration_code_hash")
   authTokenHash        String?   @map("auth_token_hash")
   status               String    @default("pending")
   registeredAt         DateTime? @map("registered_at") @db.Timestamptz(6)
@@ -24,6 +24,34 @@ model Node {
   @@index([status], map: "idx_nodes_status")
   @@map("nodes")
 }
+
+model User {
+  id           String        @id @default(uuid()) @db.Uuid
+  email        String        @unique
+  passwordHash String        @map("password_hash")
+  role         String        @default("admin")
+  createdAt    DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt    DateTime      @updatedAt @map("updated_at") @db.Timestamptz(6)
+  sessions     UserSession[]
+
+  @@map("users")
+}
+
+model UserSession {
+  id               String   @id @default(uuid()) @db.Uuid
+  userId           String   @map("user_id") @db.Uuid
+  sessionTokenHash String   @unique @map("session_token_hash")
+  expiresAt        DateTime @map("expires_at") @db.Timestamptz(6)
+  lastSeenAt       DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  createdAt        DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId], map: "idx_user_sessions_user")
+  @@index([expiresAt], map: "idx_user_sessions_expires")
+  @@map("user_sessions")
+}
+
 model SyncOperation {
   operationId   String    @id @map("operation_id") @db.Uuid
   nodeId        String    @map("node_id")
@@ -45,42 +73,42 @@ model SyncOperation {
 }
 
 model Patient {
-  id                     String          @id @db.Uuid
-  sourceSystem           String?         @map("source_system")
-  sourceRecordId         String?         @map("source_record_id")
-  originatingNodeId      String          @map("originating_node_id")
-  familySerialNo         String?         @map("family_serial_no")
-  phicNo                 String?         @map("phic_no")
-  lastName               String          @map("last_name")
-  firstName              String          @map("first_name")
-  middleName             String?         @map("middle_name")
+  id                     String         @id @db.Uuid
+  sourceSystem           String?        @map("source_system")
+  sourceRecordId         String?        @map("source_record_id")
+  originatingNodeId      String         @map("originating_node_id")
+  familySerialNo         String?        @map("family_serial_no")
+  phicNo                 String?        @map("phic_no")
+  lastName               String         @map("last_name")
+  firstName              String         @map("first_name")
+  middleName             String?        @map("middle_name")
   suffix                 String?
-  birthDate              DateTime        @map("birth_date") @db.Date
+  birthDate              DateTime       @map("birth_date") @db.Date
   sex                    String
-  civilStatus            String?         @map("civil_status")
-  placeOfBirth           String?         @map("place_of_birth")
+  civilStatus            String?        @map("civil_status")
+  placeOfBirth           String?        @map("place_of_birth")
   religion               String?
-  educationalAttainment  String?         @map("educational_attainment")
-  contactNumber          String?         @map("contact_number")
-  addressLine            String?         @map("address_line")
+  educationalAttainment  String?        @map("educational_attainment")
+  contactNumber          String?        @map("contact_number")
+  addressLine            String?        @map("address_line")
   purok                  String?
   barangay               String?
-  municipalityCity       String?         @map("municipality_city")
+  municipalityCity       String?        @map("municipality_city")
   province               String?
   district               String?
-  phicMembershipCategory String?         @map("phic_membership_category")
-  phicMembershipType     String?         @map("phic_membership_type")
-  employmentStatus       String?         @map("employment_status")
+  phicMembershipCategory String?        @map("phic_membership_category")
+  phicMembershipType     String?        @map("phic_membership_type")
+  employmentStatus       String?        @map("employment_status")
   occupation             String?
-  spouseName             String?         @map("spouse_name")
-  spouseBirthDate        DateTime?       @map("spouse_birth_date") @db.Date
-  spouseOccupation       String?         @map("spouse_occupation")
-  memberMaidenName       String?         @map("member_maiden_name")
-  fatherName             String?         @map("father_name")
-  familyPosition         String?         @map("family_position")
+  spouseName             String?        @map("spouse_name")
+  spouseBirthDate        DateTime?      @map("spouse_birth_date") @db.Date
+  spouseOccupation       String?        @map("spouse_occupation")
+  memberMaidenName       String?        @map("member_maiden_name")
+  fatherName             String?        @map("father_name")
+  familyPosition         String?        @map("family_position")
   version                Int
-  createdAt              DateTime        @map("created_at") @db.Timestamptz(6)
-  updatedAt              DateTime        @map("updated_at") @db.Timestamptz(6)
+  createdAt              DateTime       @map("created_at") @db.Timestamptz(6)
+  updatedAt              DateTime       @map("updated_at") @db.Timestamptz(6)
   encounters             Encounter[]
   immunizations          Immunization[]
   observations           Observation[]
@@ -125,7 +153,7 @@ model Observation {
   valueNumeric      Float?     @map("value_numeric")
   unit              String?
   observedAt        DateTime   @map("observed_at") @db.Timestamptz(6)
-  version            Int
+  version           Int
   createdAt         DateTime   @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime   @map("updated_at") @db.Timestamptz(6)
   encounter         Encounter? @relation(fields: [encounterId], references: [id])

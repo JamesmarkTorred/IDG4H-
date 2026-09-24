@@ -1,0 +1,82 @@
+
+> @idg4h/central-server@0.1.0 test
+> cross-env NODE_ENV=test jest --runInBand
+
+(node:14104) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.
+In the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.
+
+To prepare for this change:
+- If you want the current behavior, explicitly use 'sslmode=verify-full'
+- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'
+
+See https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.
+(Use `node --trace-warnings ...` to show where the warning was created)
+FAIL src/__tests__/nodesApp.test.ts
+  ● Node registration through the application › registers a pending node through POST /nodes/register and issues an auth token
+
+    expect(received).toMatchObject(expected)
+
+    - Expected  - 3
+    + Received  + 3
+
+      Object {
+        "node": Object {
+    -     "address": "Mainit, Surigao del Norte",
+    -     "facilityName": "Mainit Rural Health Unit",
+    -     "name": "Mainit Edge Node",
+    +     "address": "Pending App Test Address",
+    +     "facilityName": "Pending App Test Facility",
+    +     "name": "Pending App Test Node",
+          "nodeId": "app-test-node-1790233419640",
+          "status": "active",
+        },
+      }
+
+      at Object.<anonymous> (src/__tests__/C:/Users/BUkusta/OneDrive/Desktop/capstone project/idg4h/central-server/src/__tests__/nodesApp.test.ts:54:27)
+
+(node:14104) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.
+In the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.
+
+To prepare for this change:
+- If you want the current behavior, explicitly use 'sslmode=verify-full'
+- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'
+
+See https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.
+FAIL src/nodes/__tests__/nodesRoute.test.ts
+  ● Node registration API › registers a pending node, returns 201, and issues an auth token
+
+    expect(received).toMatchObject(expected)
+
+    - Expected  - 3
+    + Received  + 3
+
+      Object {
+    -   "address": "Mainit, Surigao del Norte",
+    -   "facilityName": "Mainit Rural Health Unit",
+    -   "name": "Mainit Edge Node",
+    +   "address": "Pending Address",
+    +   "facilityName": "Pending Facility",
+    +   "name": "Pending Node",
+        "nodeId": "route-test-node-1790233422421",
+        "status": "active",
+      }
+
+      at Object.<anonymous> (src/nodes/__tests__/C:/Users/BUkusta/OneDrive/Desktop/capstone project/idg4h/central-server/src/nodes/__tests__/nodesRoute.test.ts:66:32)
+
+  ● Node registration API › returns 400 for a missing required field
+
+    expect(received).toBe(expected) // Object.is equality
+
+    Expected: 400
+    Received: 404
+
+      at Object.<anonymous> (src/nodes/__tests__/C:/Users/BUkusta/OneDrive/Desktop/capstone project/idg4h/central-server/src/nodes/__tests__/nodesRoute.test.ts:116:29)
+
+(node:14104) Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and 'verify-ca' are treated as aliases for 'verify-full'.
+In the next major version (pg-connection-string v3.0.0 and pg v9.0.0), these modes will adopt standard libpq semantics, which have weaker security guarantees.
+
+To prepare for this change:
+- If you want the current behavior, explicitly use 'sslmode=verify-full'
+- If you want libpq compatibility now, use 'uselibpqcompat=true&sslmode=require'
+
+See https://www.postgresql.org/docs/current/libpq-ssl.html for libpq SSL mode definitions.

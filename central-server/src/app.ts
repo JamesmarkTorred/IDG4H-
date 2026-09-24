@@ -10,9 +10,15 @@ import syncRouter from './routes/sync';
 
 import nodesRouter from './nodes/routes/nodes';
 
+import cookieParser from 'cookie-parser';
+
+import authRouter from './auth/routes/auth';
+
 const app = express();
 
 app.use(express.json());
+
+app.use(cookieParser());
 
 app.use('/api-docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
@@ -21,6 +27,9 @@ app.use('/health', healthRouter);
 app.use('/sync', syncRouter);
 
 app.use('/nodes', nodesRouter);
+
+app.use('/auth', authRouter);
+
 
 const handleRequestError: ErrorRequestHandler = (
   error: unknown,

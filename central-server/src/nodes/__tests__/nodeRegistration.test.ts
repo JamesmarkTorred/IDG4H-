@@ -18,9 +18,9 @@ describe('node registration service', () => {
     await prisma.node.create({
       data: {
         nodeId: pendingNodeId,
-        name: 'Pending Node',
-        facilityName: 'Pending Facility',
-        address: 'Pending Address',
+        name: 'Mainit Edge Node',
+        facilityName: 'Mainit Rural Health Unit',
+        address: 'Mainit, Surigao del Norte',
         registrationCodeHash: hashRegistrationCode(
           'IDG4H-TEST-CODE',
         ),
@@ -48,10 +48,6 @@ describe('node registration service', () => {
   it('registers a pending node successfully', async () => {
     const node = await registerNode({
       nodeId: pendingNodeId,
-      name: 'Mainit Edge Node',
-      facilityName: 'Mainit Rural Health Unit',
-      address:
-        'Mainit, Surigao del Norte',
       registrationCode: 'IDG4H-TEST-CODE',
     });
 
@@ -66,15 +62,13 @@ describe('node registration service', () => {
     expect(node.status).toBe('active');
     expect(node.registeredAt).toBeInstanceOf(Date);
     expect(node.updatedAt).toBeInstanceOf(Date);
+    expect(node.authToken).toEqual(expect.any(String));
   });
 
   it('rejects a node that does not exist', async () => {
     await expect(
       registerNode({
         nodeId: 'missing-registration-node',
-        name: 'Test Node',
-        facilityName: 'Test Facility',
-        address: 'Test Address',
         registrationCode: generateRegistrationCode(),
       }),
     ).rejects.toBeInstanceOf(NodeNotFoundError);
@@ -84,9 +78,6 @@ describe('node registration service', () => {
     await expect(
       registerNode({
         nodeId: pendingNodeId,
-        name: 'Duplicate Node',
-        facilityName: 'Duplicate Facility',
-        address: 'Duplicate Address',
         registrationCode: 'IDG4H-TEST-CODE',
       }),
     ).rejects.toBeInstanceOf(NodeAlreadyRegisteredError);
@@ -111,9 +102,6 @@ describe('node registration service', () => {
     await expect(
       registerNode({
         nodeId: invalidCodeNodeId,
-        name: 'Test Node',
-        facilityName: 'Test Facility',
-        address: 'Test Address',
         registrationCode: 'IDG4H-WRONG-CODE',
       }),
     ).rejects.toBeInstanceOf(
@@ -131,9 +119,6 @@ describe('node registration service', () => {
     await expect(
       registerNode({
         nodeId: '   ',
-        name: 'Test Node',
-        facilityName: 'Test Facility',
-        address: 'Test Address',
         registrationCode: 'IDG4H-TEST-CODE',
       }),
     ).rejects.toBeInstanceOf(
@@ -141,28 +126,11 @@ describe('node registration service', () => {
     );
   });
 
-  it('rejects an empty facility name', async () => {
+  it('rejects an empty registration code', async () => {
     await expect(
       registerNode({
         nodeId: pendingNodeId,
-        name: 'Test Node',
-        facilityName: '   ',
-        address: 'Test Address',
-        registrationCode: 'IDG4H-TEST-CODE',
-      }),
-    ).rejects.toBeInstanceOf(
-      NodeRegistrationValidationError,
-    );
-  });
-
-  it('rejects an empty address', async () => {
-    await expect(
-      registerNode({
-        nodeId: pendingNodeId,
-        name: 'Test Node',
-        facilityName: 'Test Facility',
-        address: '   ',
-        registrationCode: 'IDG4H-TEST-CODE',
+        registrationCode: '   ',
       }),
     ).rejects.toBeInstanceOf(
       NodeRegistrationValidationError,

@@ -45,6 +45,16 @@ export { Prisma }
  */
 export type Node = Prisma.NodeModel
 /**
+ * Model User
+ * 
+ */
+export type User = Prisma.UserModel
+/**
+ * Model UserSession
+ * 
+ */
+export type UserSession = Prisma.UserSessionModel
+/**
  * Model SyncOperation
  * 
  */

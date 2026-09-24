@@ -9,6 +9,8 @@
  * 🟢 You can import this file directly.
  */
 export type * from './models/Node'
+export type * from './models/User'
+export type * from './models/UserSession'
 export type * from './models/SyncOperation'
 export type * from './models/Patient'
 export type * from './models/Encounter'
